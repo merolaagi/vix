@@ -1,0 +1,340 @@
+"""The company runtime: departments, playbook registry, runs (with super agents
+delegating child runs to departments), reports, decisions and schedules."""
+from __future__ import annotations
+
+import datetime as dt
+import json
+import threading
+import time
+import traceback
+from dataclasses import dataclass, field
+from typing import Callable
+
+from .. import db, world
+from ..config import REPORT_DIR
+from . import charter as charter_mod
+
+DEPARTMENTS = [
+    {"id": "exec", "name": "Office of the Chief Operator", "agent": "Atlas", "tier": "super",
+     "mission": "Run the business: drive the daily operating cycle across departments, review KPIs weekly "
+                "and file decisions (new halls, cooling upgrades) for the founder.",
+     "kpis": ["decisions filed", "operating cycles"]},
+    {"id": "rnd", "name": "Research & Development", "agent": "Euler", "tier": "super",
+     "mission": "Chief Scientist: design and test network gear and standards in simulation, delegate studies "
+                "to Network Engineering, and propose standards when the evidence is strong.",
+     "kpis": ["studies run", "standards proposed"]},
+    {"id": "sales", "name": "Sales & Customers", "agent": "Broker", "tier": "department",
+     "mission": "Bring in synthetic demand from existing and new tenants and turn it into orders.",
+     "kpis": ["orders placed", "new tenants"]},
+    {"id": "ix", "name": "Interconnection", "agent": "Weaver", "tier": "department",
+     "mission": "Provision ports, cross-connects and fabric virtual circuits.",
+     "kpis": ["cross-connects", "virtual circuits"]},
+    {"id": "ops", "name": "Site Operations", "agent": "Warden", "tier": "department",
+     "mission": "Keep halls inside thermal and power limits, place colocation orders, run failure drills.",
+     "kpis": ["halls healthy", "drills run"]},
+    {"id": "metal", "name": "Compute (Metal)", "agent": "Forge", "tier": "department",
+     "mission": "Provision bare-metal servers from mock inventory.",
+     "kpis": ["servers allocated"]},
+    {"id": "net", "name": "Network Engineering", "agent": "Pathfinder", "tier": "department",
+     "mission": "Run BGP at the exchanges, study failure and attack events, keep the latency map.",
+     "kpis": ["studies run", "reachability"]},
+    {"id": "energy", "name": "Energy & Sustainability", "agent": "Steward", "tier": "department",
+     "mission": "Report energy use, PUE and carbon per metro.",
+     "kpis": ["fleet PUE", "tCO2 per day"]},
+    {"id": "finance", "name": "Finance", "agent": "Ledger", "tier": "department",
+     "mission": "Close the month: revenue by product, power cost, opex, depreciation, EBITDA.",
+     "kpis": ["MRR", "EBITDA margin"]},
+]
+DEPT = {d["id"]: d for d in DEPARTMENTS}
+
+
+@dataclass
+class Playbook:
+    name: str
+    title: str
+    department: str
+    description: str
+    fn: Callable
+    params: dict = field(default_factory=dict)
+
+    def meta(self):
+        return {"name": self.name, "title": self.title, "department": self.department,
+                "agent": DEPT[self.department]["agent"], "description": self.description, "params": self.params}
+
+
+PLAYBOOKS: dict[str, Playbook] = {}
+
+
+def playbook(name, title, department, description, params=None):
+    def deco(fn):
+        PLAYBOOKS[name] = Playbook(name, title, department, description, fn, params or {})
+        return fn
+    return deco
+
+
+class Ctx:
+    def __init__(self, run_id, pb: Playbook, params: dict):
+        self.run_id, self.pb, self.params = run_id, pb, params
+        self.agent = DEPT[pb.department]["agent"]
+        self._log = []
+
+    def log(self, msg):
+        line = f"{time.strftime('%H:%M:%S')} [{self.agent}] {msg}"
+        self._log.append(line)
+        db.execute("update runs set log=? where id=?", ("\n".join(self._log), self.run_id))
+
+    def p(self, key, default=None, cast=None):
+        v = self.params.get(key, self.pb.params.get(key, {}).get("default", default))
+        if v is None:
+            return default
+        return cast(v) if cast else v
+
+    def child(self, name, params=None) -> dict:
+        """Delegate to a department: runs synchronously as a child run and returns it."""
+        dept = DEPT[PLAYBOOKS[name].department]
+        self.log(f"delegates {name} to {dept['agent']} ({dept['name']})")
+        rid = _create(name, params or {}, trigger=f"run {self.run_id}", parent=self.run_id)
+        _execute(rid)
+        r = run_get(rid)
+        self.log(f"{dept['agent']} finished {name}: {r['status']}")
+        return r
+
+
+def _create(name, params, trigger, parent=None):
+    if name not in PLAYBOOKS:
+        raise ValueError(f"unknown playbook {name}; one of {sorted(PLAYBOOKS)}")
+    pb = PLAYBOOKS[name]
+    return db.execute("insert into runs(playbook,department,params,status,trigger,parent,started,log)"
+                      " values(?,?,?,?,?,?,?,?)",
+                      (name, pb.department, json.dumps(params), "running", trigger, parent, time.time(), ""))
+
+
+def _execute(rid):
+    r = db.one("select * from runs where id=?", (rid,))
+    pb = PLAYBOOKS[r["playbook"]]
+    ctx = Ctx(rid, pb, json.loads(r["params"] or "{}"))
+    try:
+        summary, md = pb.fn(ctx)
+        stamp = dt.datetime.now().strftime("%Y%m%d-%H%M")
+        report = f"{stamp}-{pb.name}-r{rid}.md"
+        head = (f"# {pb.title}\n\n_{DEPT[pb.department]['name']} · agent {ctx.agent} · run {rid} · "
+                f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M')} · simulated data_\n\n")
+        (REPORT_DIR / report).write_text(head + md)
+        db.execute("update runs set status='done', finished=?, report=?, summary=? where id=?",
+                   (time.time(), report, json.dumps(summary, default=str), rid))
+    except Exception as e:  # noqa: BLE001
+        ctx.log(f"failed: {e}")
+        db.execute("update runs set status='failed', finished=?, summary=?, log=? where id=?",
+                   (time.time(), json.dumps({"error": str(e)}),
+                    "\n".join(ctx._log + [traceback.format_exc()[-2000:]]), rid))
+
+
+def start(name, params=None, trigger="manual") -> int:
+    rid = _create(name, params or {}, trigger)
+    threading.Thread(target=_execute, args=(rid,), daemon=True).start()
+    return rid
+
+
+def run_now(name, params=None, trigger="manual") -> dict:
+    rid = _create(name, params or {}, trigger)
+    _execute(rid)
+    return run_get(rid)
+
+
+def run_get(rid):
+    r = db.one("select * from runs where id=?", (rid,))
+    if r:
+        r["params"] = json.loads(r["params"] or "{}")
+        r["summary"] = json.loads(r["summary"] or "null")
+        r["children"] = [c["id"] for c in db.rows("select id from runs where parent=?", (rid,))]
+    return r
+
+
+def runs(limit=20, department=None):
+    q, args = "select * from runs", ()
+    if department:
+        q, args = q + " where department=?", (department,)
+    out = db.rows(q + " order by id desc limit ?", args + (limit,))
+    for r in out:
+        r["params"] = json.loads(r["params"] or "{}")
+        r["summary"] = json.loads(r["summary"] or "null")
+    return out
+
+
+def safe_report(name: str):
+    p = (REPORT_DIR / name).resolve()
+    if p.parent != REPORT_DIR.resolve() or not p.name.endswith(".md") or not p.exists():
+        raise ValueError(f"no report {name}")
+    return p
+
+
+def reports(limit=50):
+    files = sorted(REPORT_DIR.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]
+    return [{"name": f.name, "size": f.stat().st_size, "mtime": f.stat().st_mtime} for f in files]
+
+
+# ---------- decisions ----------
+
+def decision_add(agent, kind, title, detail):
+    dup = db.one("select id from decisions where status='open' and kind=? and detail=?", (kind, json.dumps(detail)))
+    if dup:
+        return dup["id"]
+    return db.execute("insert into decisions(ts,agent,kind,title,detail,status) values(?,?,?,?,?,'open')",
+                      (time.time(), agent, kind, title, json.dumps(detail)))
+
+
+def decisions(status=None):
+    q, args = "select * from decisions", ()
+    if status:
+        q, args = q + " where status=?", (status,)
+    out = db.rows(q + " order by id desc", args)
+    for d in out:
+        d["detail"] = json.loads(d["detail"] or "{}")
+    return out
+
+
+def decide(did: int, approve: bool, note: str = "") -> dict:
+    d = db.one("select * from decisions where id=?", (did,))
+    if not d:
+        raise ValueError(f"no decision {did}")
+    if d["status"] != "open":
+        raise ValueError(f"decision {did} is already {d['status']}")
+    detail = json.loads(d["detail"] or "{}")
+    effect = None
+    if approve:
+        if d["kind"] == "build_hall":
+            effect = world.add_hall(detail["site"], int(detail.get("cabinets", 260)))
+        elif d["kind"] == "network_standard":
+            for k in ("rs_filtering", "edge_filtering"):
+                if k in detail:
+                    db.set_setting(k, bool(detail[k]))
+            effect = {k: db.setting(k) for k in ("rs_filtering", "edge_filtering")}
+        elif d["kind"] == "cooling_upgrade":
+            db.execute("update halls set crah_units=crah_units+? where id=?", (int(detail.get("units", 1)), detail["hall"]))
+            effect = {"hall": detail["hall"], "added_units": int(detail.get("units", 1))}
+    db.execute("update decisions set status=?, resolved_ts=?, note=? where id=?",
+               ("approved" if approve else "rejected", time.time(),
+                (note + (f" | applied: {json.dumps(effect)}" if effect else "")).strip(" |"), did))
+    return {"decision": did, "status": "approved" if approve else "rejected", "effect": effect}
+
+
+# ---------- schedules ----------
+
+DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+def next_run(every: str, after: float) -> float:
+    now = dt.datetime.fromtimestamp(after)
+    parts = every.strip().lower().split()
+    if parts == ["hourly"]:
+        return (now.replace(minute=0, second=0, microsecond=0) + dt.timedelta(hours=1)).timestamp()
+    if parts and parts[0] == "daily" and len(parts) == 2:
+        h, m = map(int, parts[1].split(":"))
+        t = now.replace(hour=h, minute=m, second=0, microsecond=0)
+        return (t if t > now else t + dt.timedelta(days=1)).timestamp()
+    if parts and parts[0] == "weekly" and len(parts) == 3 and parts[1] in DAYS:
+        h, m = map(int, parts[2].split(":"))
+        t = now.replace(hour=h, minute=m, second=0, microsecond=0)
+        t += dt.timedelta(days=(DAYS.index(parts[1]) - t.weekday()) % 7)
+        return (t if t > now else t + dt.timedelta(days=7)).timestamp()
+    raise ValueError("every must be 'hourly', 'daily HH:MM' or 'weekly mon HH:MM'")
+
+
+def schedules():
+    out = db.rows("select * from schedules order by id")
+    for s in out:
+        s["params"] = json.loads(s["params"] or "{}")
+        s["next_run"] = next_run(s["every"], s["last_run"] or time.time()) if s["enabled"] else None
+    return out
+
+
+def schedule_add(name, every, params=None):
+    if name not in PLAYBOOKS:
+        raise ValueError(f"unknown playbook {name}")
+    next_run(every, time.time())
+    return db.execute("insert into schedules(playbook,params,every,enabled,last_run) values(?,?,?,1,?)",
+                      (name, json.dumps(params or {}), every, time.time()))
+
+
+def schedule_set(sid, enabled=None, delete=False):
+    if delete:
+        db.execute("delete from schedules where id=?", (sid,))
+    elif enabled is not None:
+        db.execute("update schedules set enabled=? where id=?", (1 if enabled else 0, sid))
+
+
+def seed_schedules():
+    if db.scalar("select count(*) from schedules"):
+        return
+    for name, every in (("exec_operating_cycle", "daily 02:10"),
+                        ("exec_weekly_review", "weekly mon 06:40"),
+                        ("rnd_research_cycle", "weekly sat 03:20")):
+        schedule_add(name, every)
+
+
+def tick():
+    now = time.time()
+    for s in schedules():
+        if s["enabled"] and s["next_run"] and s["next_run"] <= now:
+            db.execute("update schedules set last_run=? where id=?", (now, s["id"]))
+            start(s["playbook"], s["params"], trigger=f"schedule {s['id']}")
+
+
+def scheduler_loop(stop: threading.Event):
+    while not stop.wait(30):
+        try:
+            tick()
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+
+
+# ---------- overview ----------
+
+def kpis():
+    hs = world.halls()
+    cab_t = sum(h["cabinets_total"] for h in hs)
+    cab_s = sum(h["cabinets_sold"] for h in hs)
+    tele = db.rows("select t.* from telemetry t join (select hall, max(id) id from telemetry group by hall) l on l.id=t.id")
+    it = sum(t["it_kw"] for t in tele)
+    fac = sum(t["facility_kw"] for t in tele)
+    fin = db.setting("fin_last") or {}
+    week = time.time() - 7 * 86400
+    return {
+        "metros": db.scalar("select count(*) from metros"),
+        "sites": db.scalar("select count(*) from sites"),
+        "halls": len(hs),
+        "cabinet_util": round(cab_s / cab_t, 3) if cab_t else 0,
+        "it_load_mw": round(sum(h["it_load_kw"] for h in hs) / 1000, 2),
+        "fleet_pue": round(fac / it, 3) if it else None,
+        "tenants": db.scalar("select count(*) from tenants"),
+        "cross_connects": db.scalar("select count(*) from cross_connects"),
+        "virtual_circuits": db.scalar("select count(*) from virtual_circuits"),
+        "mrr_usd": world.revenue_breakdown()["total"],
+        "ebitda_margin": fin.get("ebitda_margin"),
+        "orders_pending": db.scalar("select count(*) from orders where status='pending'"),
+        "orders_waitlisted": db.scalar("select count(*) from orders where status='waitlisted'"),
+        "open_decisions": db.scalar("select count(*) from decisions where status='open'"),
+        "runs_7d": db.scalar("select count(*) from runs where started>?", (week,)),
+        "failed_7d": db.scalar("select count(*) from runs where started>? and status='failed'", (week,)),
+        "network_standard": {"rs_filtering": bool(db.setting("rs_filtering", False)),
+                             "edge_filtering": bool(db.setting("edge_filtering", False))},
+    }
+
+
+def overview():
+    deps = []
+    for d in DEPARTMENTS:
+        last = db.one("select id, playbook, status, started, finished, report, summary from runs"
+                      " where department=? order by id desc limit 1", (d["id"],))
+        if last:
+            last["summary"] = json.loads(last["summary"] or "null")
+        deps.append({**d, "playbooks": [p.meta() for p in PLAYBOOKS.values() if p.department == d["id"]],
+                     "runs_total": db.scalar("select count(*) from runs where department=?", (d["id"],)),
+                     "last_run": last})
+    sched = sorted([{"playbook": s["playbook"], "every": s["every"], "next_run": s["next_run"]}
+                    for s in schedules() if s["enabled"]], key=lambda s: s["next_run"] or 0)
+    return {"charter": charter_mod.load(), "departments": deps, "kpis": kpis(),
+            "open_decisions": decisions("open")[:10], "next_scheduled": sched}
+
+
+from . import playbooks  # noqa: E402,F401  (registers every playbook)
