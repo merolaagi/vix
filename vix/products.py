@@ -259,7 +259,7 @@ def fulfill_edge(tid, p):
 
 
 def fulfill_internet(tid, p):
-    """Equinix-style Internet Access: committed bandwidth with burst, over the tenant's port, optional BGP."""
+    """Internet Access: committed bandwidth with burst, over the tenant's port, optional BGP."""
     m, commit = p.get("metro"), int(p.get("commit_mbps", 1000))
     if commit < 50:
         return "rejected", "commit at least 50 Mbps"

@@ -194,6 +194,22 @@ escalator, self-serve order cap), versioned and visible in the Agent lab. Every 
 
 Runs are kept in `data/evolve` (state and an edit history per run).
 
+## Calling agents (v0.11)
+
+Any agent can be asked to run the work it is assigned, whenever you want, without waiting for its schedule. An
+agent's assignments are its department's playbooks plus those of any of the 20 engineering roles it holds; a role
+playbook that belongs to a neighbouring team runs with that team's agent (Pathfinder's Network Engineer III watches the
+NOC with Sentinel), and every piece writes its own report.
+
+- **Roles tab:** Run on any role, a not-run playbook chip to run just that one, or **Roll call** to have Helm ask
+  every role holder to run its role's work (about 15 seconds; the report shows which roles delivered).
+- **Overview → Chain of command:** click any agent to see what it is assigned and run all of it or one piece.
+- **MCP:** `agent_assignments` (what an agent does), `agent_run` (agent, agent + playbook, or role 01-20),
+  `roles_roll_call`.
+
+On-demand runs never move the simulated calendar: the operating cycle and the self-improvement run stay on their
+schedules.
+
 ## Customer portal and API
 
 Open http://127.0.0.1:47530/portal. As the operator you can open the portal as any customer (it issues them an API
@@ -354,6 +370,9 @@ remote-hands SLAs and retention all run on this calendar.
 - **Latency**: great-circle distance x 1.45 route factor at 200 km/ms.
 
 ## Upgrading
+
+Run the new `install.sh` over the old install. v0.10 to v0.11 adds on-demand agent runs (Roles tab, Chain of command,
+MCP `agent_run`); nothing else changes in your company.
 
 Run the new `install.sh` over the old install. v0.9 to v0.10 adds the model router settings (empty: vix keeps working
 with the built-in rules until you add a local model), the council tables, the harness at version 0 (today's values),

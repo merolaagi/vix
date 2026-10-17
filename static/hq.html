@@ -141,6 +141,9 @@ details.dt summary{cursor:pointer;color:var(--dim);font-size:12px;margin:10px 0 
 .heat5 b{background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:0 4px;font-weight:600;color:var(--ink);cursor:default}
 .dec>div:first-child{min-width:0;flex:1}.dec .mission,.dec li{overflow-wrap:anywhere}.grid.wide>*{min-width:0}#sollama{overflow-x:auto}#sollama table{min-width:520px}
 @media(max-width:520px){.dec{flex-direction:column}.dec>div:last-child{align-items:flex-start!important}}
+.rolehead{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin:14px 0 10px}.rolehead p{margin:0}
+button.chip{cursor:pointer;font:11px var(--mono)}button.chip:hover{border-color:var(--accent)}button.chip[disabled]{opacity:.6;cursor:wait}
+.org .who[data-agent]{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
 </style>
 </head>
 <body>
@@ -169,7 +172,8 @@ details.dt summary{cursor:pointer;color:var(--dim);font-size:12px;margin:10px 0 
 <main>
   <section class="tab on" id="overview">
     <div class="kpis" id="kpis"></div>
-    <h2>Chain of command</h2><div class="card org" id="org"></div>
+    <h2>Chain of command</h2><p class="note" style="margin:-4px 0 8px">Click an agent to see its assigned work and ask it to run.</p><div class="card org" id="org"></div>
+    <div class="card" id="agentpanel" style="display:none;margin-top:10px"></div>
     <h2>Leadership</h2><div class="grid" id="supers"></div>
     <h2>Departments</h2><div class="grid" id="depts"></div>
     <h2>Recent runs</h2><div class="tw"><table id="runs"></table></div>
@@ -230,7 +234,7 @@ details.dt summary{cursor:pointer;color:var(--dim);font-size:12px;margin:10px 0 
     <div class="tw"><table id="devs"></table></div>
   </section>
   <section class="tab" id="roles">
-    <p class="note" id="rolenote" style="margin-top:14px"></p>
+    <div class="rolehead"><p class="note" id="rolenote"></p><button class="b go" id="rollcall">Roll call: run all 20 roles</button></div>
     <div class="tw"><table id="roletbl"></table></div>
   </section>
   <section class="tab" id="graph">
@@ -433,8 +437,9 @@ async function overview(){
   $('#kpis').innerHTML=tiles.map(([l,v])=>`<div class="kpi"><div class="v">${esc(v)}</div><div class="l">${l}</div></div>`).join('');
   $('#supers').innerHTML=o.departments.filter(d=>d.tier==='super'||d.tier==='chief').map(deptHtml).join('');
   $('#depts').innerHTML=o.departments.filter(d=>d.tier==='department').map(deptHtml).join('');
-  const tree=n=>`<li><span class="who ${n.tier}">${esc(n.agent)}</span> · ${esc(n.name)}${n.reports&&n.reports.length?`<ul>${n.reports.map(tree).join('')}</ul>`:''}</li>`;
+  const tree=n=>`<li><span class="who ${n.tier}"${n.id!=='founder'?` data-agent="${n.id}" role="button" tabindex="0"`:''}>${esc(n.agent)}</span> · ${esc(n.name)}${n.reports&&n.reports.length?`<ul>${n.reports.map(tree).join('')}</ul>`:''}</li>`;
   $('#org').innerHTML=`<ul>${tree(o.org_chart)}</ul>`;
+  $('#org').querySelectorAll('[data-agent]').forEach(x=>{x.onclick=()=>agentPanel(x.dataset.agent);x.onkeydown=e=>{if(e.key==='Enter')agentPanel(x.dataset.agent)}});
   const runs=await api('/api/company/runs?limit=25');
   $('#runs').innerHTML='<tr><th>#</th><th>Playbook</th><th>Dept</th><th>Status</th><th>Trigger</th><th>Started</th><th>Report</th></tr>'+
    runs.map(r=>`<tr><td class="n">${r.id}</td><td>${r.parent?'↳ ':''}${esc(r.playbook)}</td><td>${r.department}</td><td><span class="st ${r.status}">${r.status}</span></td><td class="note">${esc(r.trigger)}</td><td class="note">${ago(r.started)}</td><td>${r.report?`<a href="#" data-rep="${r.report}">open</a>`:''}</td></tr>`).join('');
@@ -647,12 +652,26 @@ async function netDevices(){
   $('#devs').innerHTML='<tr><th>Hostname</th><th>Site</th><th>Role</th><th>Model</th><th>Firmware</th><th>Driver</th><th>Status</th></tr>'+ds.slice(0,200).map(d=>`<tr><td><b>${esc(d.hostname)}</b></td><td>${d.site}</td><td>${d.role}</td><td class="note">${esc(d.vendor)} ${esc(d.model)}</td><td class="note">${esc(d.os_version)}</td><td class="note">${d.mode==='sim'?'sim':`<b>${d.mode}</b> ${esc(d.platform)}`}</td><td><span class="st ${d.status==='up'?'done':d.status==='degraded'?'running':'failed'}">${d.status}</span></td></tr>`).join('')+(ds.length>200?`<tr><td class="note" colspan="7">${ds.length-200} more…</td></tr>`:'')}
 
 // ---------------- Roles
+async function runAndWait(id,label,done){toast(`${label} started (run #${id})`);for(let i=0;i<400;i++){await new Promise(r=>setTimeout(r,1500));const r=await api('/api/company/runs/'+id);
+  if(r.status!=='running'){const s=r.summary||{};toast(`${label}: ${r.status}${s.done!=null?` (${s.done}/${s.ran} finished)`:s.delivered!=null?` (${s.delivered}/${s.roles} roles delivered)`:''}`);if(done)done(r);return r}}}
 async function rolesTab(){
   const c=await api('/api/roles');
-  $('#rolenote').innerHTML=`${c.total} engineering roles from <i>${esc(c.source)}</i>. <b>${c.covered}/${c.total}</b> have an agent and playbooks; <b>${c.exercised}/${c.total}</b> have run successfully.`;
-  $('#roletbl').innerHTML='<tr><th>#</th><th>Role</th><th>Kind</th><th>Done by</th><th>What the agent does</th><th>Playbooks · last run</th></tr>'+c.roles.map(r=>`<tr><td class="n">${r.ref}</td><td><b>${esc(r.title)}</b><div class="note">${esc(r.req)}</div></td><td>${r.kind}</td>
+  $('#rolenote').innerHTML=`${c.total} engineering roles at vix, each done by a department agent. <b>${c.exercised}/${c.total}</b> have run all their work successfully. Run a role to see its agent do it.`;
+  $('#roletbl').innerHTML='<tr><th>#</th><th>Role</th><th>Kind</th><th>Done by</th><th>What the agent does</th><th>Playbooks · last run</th><th></th></tr>'+c.roles.map(r=>`<tr><td class="n">${r.ref}</td><td><b>${esc(r.title)}</b></td><td>${r.kind}</td>
    <td><span class="agent">${esc(r.agent)}</span><div class="note">${esc(r.department)}</div></td><td class="note">${r.duties.map(esc).join('<br>')}</td>
-   <td><div class="chips">${r.playbooks.map(p=>`<span class="chip ${p.last_run&&p.last_run.status==='done'?'ok':'no'}">${esc(p.playbook)}${p.last_run?` · ${p.last_run.report?`<a href="#" data-rep="${p.last_run.report}">${p.last_run.status}</a>`:p.last_run.status}`:' · not run'}</span>`).join('')}</div></td></tr>`).join('')}
+   <td><div class="chips">${r.playbooks.map(p=>p.last_run?`<span class="chip ${p.last_run.status==='done'?'ok':'no'}">${esc(p.playbook)} · ${p.last_run.report?`<a href="#" data-rep="${p.last_run.report}">${p.last_run.status}</a>`:p.last_run.status}</span>`:`<button class="chip no" data-rpb="${esc(p.playbook)}" data-rdept="${esc(r.dept)}" title="Ask ${esc(r.agent)} to run ${esc(p.playbook)}">${esc(p.playbook)} · not run ▶</button>`).join('')}</div></td>
+   <td><button class="b" data-rrun="${r.ref}" title="Ask ${esc(r.agent)} to run this role's work">Run</button></td></tr>`).join('');
+  document.querySelectorAll('[data-rrun]').forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent='Running…';try{const {run_id}=await api(`/api/roles/${b.dataset.rrun}/run`,{method:'POST'});await runAndWait(run_id,`Role ${b.dataset.rrun}`,()=>rolesTab())}catch(e){toast(e.message);b.disabled=false;b.textContent='Run'}});
+  document.querySelectorAll('[data-rpb]').forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent=b.dataset.rpb+' · running…';try{const {run_id}=await api(`/api/agents/${b.dataset.rdept}/run`,{method:'POST',body:JSON.stringify({playbook:b.dataset.rpb})});await runAndWait(run_id,b.dataset.rpb,()=>rolesTab())}catch(e){toast(e.message);rolesTab()}});
+  $('#rollcall').onclick=async()=>{const b=$('#rollcall');b.disabled=true;b.textContent='Roll call running…';try{const {run_id}=await api('/api/roles/roll-call',{method:'POST'});await runAndWait(run_id,'Roll call',r=>{rolesTab();if(r.report)openReport(r.report)})}catch(e){toast(e.message)}b.disabled=false;b.textContent='Roll call: run all 20 roles'}}
+async function agentPanel(who){const a=await api('/api/agents/'+encodeURIComponent(who));const el=$('#agentpanel');el.style.display='';
+  el.innerHTML=`<div class="dec"><div><div class="agent">${esc(a.agent)} · ${esc(a.name)}</div><div class="note">Reports to ${esc(a.reports_to||'founder')}${a.roles.length?` · holds role${a.roles.length>1?'s':''} ${a.roles.map(r=>r.ref).join(', ')}`:''} · ${a.assignments.length} assigned playbook${a.assignments.length===1?'':'s'}</div></div>
+   <div style="display:flex;gap:6px">${a.assignments.length?`<button class="b go" id="agrunall">Run all assigned work</button>`:''}<button class="b" id="agclose">Close</button></div></div>
+   ${a.assignments.length?`<div class="tw" style="margin-top:10px"><table><tr><th>Playbook</th><th>Why assigned</th><th>Done by</th><th>Last run</th><th></th></tr>${a.assignments.map(x=>`<tr><td><b>${esc(x.title)}</b><div class="note">${esc(x.playbook)}</div></td><td class="note">${esc(x.via)}</td><td>${esc(x.performed_by)}</td><td class="note">${x.last_run?`<span class="st ${x.last_run.status}">${x.last_run.status}</span> ${ago(x.last_run.started)} ${x.last_run.report?`· <a href="#" data-rep="${x.last_run.report}">report</a>`:''}`:'never'}</td><td><button class="b" data-agpb="${esc(x.playbook)}">Run</button></td></tr>`).join('')}</table></div>`:'<p class="note">Nothing assigned that can run on demand (the operating cycle moves the calendar and is left to Atlas\'s schedule).</p>'}`;
+  $('#agclose').onclick=()=>{el.style.display='none'};
+  const go=async(pb,btn)=>{btn.disabled=true;btn.textContent='Running…';try{const {run_id}=await api(`/api/agents/${a.department}/run`,{method:'POST',body:JSON.stringify({playbook:pb||''})});await runAndWait(run_id,`${a.agent}${pb?': '+pb:''}`,()=>agentPanel(a.department))}catch(e){toast(e.message);btn.disabled=false;btn.textContent='Run'}};
+  if($('#agrunall'))$('#agrunall').onclick=e=>go('',e.target);
+  el.querySelectorAll('[data-agpb]').forEach(b=>b.onclick=()=>go(b.dataset.agpb,b));el.scrollIntoView({behavior:'smooth',block:'nearest'})}
 
 // ---------------- Graph
 const GCOL={Founder:'#f2b84b',Department:'#a78bfa',Agent:'#4fd1c5',Playbook:'#5b7fa6',Role:'#c084fc',Product:'#5fd38d',PnLLine:'#f2b84b',Metro:'#94a3b8',Site:'#7dd3fc',Hall:'#64748b',Vendor:'#fb923c',Device:'#38bdf8',BackboneLink:'#0ea5e9',Customer:'#ef6b6b',Incident:'#f43f5e',Decision:'#facc15',Opportunity:'#86efac'};

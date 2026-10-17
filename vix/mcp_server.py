@@ -39,7 +39,7 @@ mcp = MCPServer(
         "founder asks you to review council dossiers, call council_pending, judge each on its merits (you may disagree "
         "with Helm and the other models) and answer with council_vote. You can also improve the agents' own policies: "
         "harness_view shows them, evolve_propose queues an edit with a hypothesis about the business, evolve_status "
-        "shows the self-improvement runs. Every number is simulated; nothing is a real facility, provider or customer."
+        "shows the self-improvement runs. Any agent can be called: agent_assignments shows what it is assigned, agent_run runs it (or one engineering role's work), roles_roll_call runs all 20 roles. Every number is simulated; nothing is a real facility, provider or customer."
     ),
 )
 
@@ -632,6 +632,40 @@ def governance_scorecards() -> dict:
             "outcomes": db.rows("select * from gov_outcome order by approved_on desc limit 40"),
             "budgets": db.rows("select * from gov_budget where period=(select max(period) from gov_budget)")}
 
+
+
+# ---------- calling agents ----------
+
+@mcp.tool()
+def agent_assignments(agent: str) -> dict:
+    """What one agent is assigned to do: its department's playbooks and the playbooks of any engineering roles it
+    holds, who it reports to, and when each last ran. agent is a name (Anvil, Pathfinder, Sentinel ...) or a
+    department id (platform, net, noc ...)."""
+    from .company import assign_playbooks as ap
+    return ap.assignments(agent)
+
+
+@mcp.tool()
+def agent_run(agent: str = "", role: str = "", playbook: str = "") -> dict:
+    """Ask an agent to run its assigned work now, in the background. Give agent (name or department) to run
+    everything assigned to it, agent + playbook to run one assigned playbook, or role (01-20) to run that
+    engineering role's work. Returns a run id: poll company_run_status, then read company_report. Never moves the
+    simulated calendar."""
+    from .company import assign_playbooks as ap
+    if role:
+        ap.role_playbooks(role)
+        return {"run_id": engine.start("agent_assignment", {"role": role}, "mcp")}
+    a = ap.assignments(agent)
+    if playbook and playbook not in [x["playbook"] for x in a["assignments"]]:
+        raise ValueError(f"{playbook} is not assigned to {a['agent']}; assigned: {[x['playbook'] for x in a['assignments']]}")
+    return {"run_id": engine.start("agent_assignment", {"agent": a["department"], "playbook": playbook}, "mcp"), "agent": a["agent"]}
+
+
+@mcp.tool()
+def roles_roll_call() -> dict:
+    """Helm asks every agent holding one of the 20 engineering roles to run that role's work now (one role at a
+    time, a few minutes). Returns a run id; the report lists which roles delivered."""
+    return {"run_id": engine.start("roll_call", {}, "mcp")}
 
 
 # ---------- v0.10: council seat, self-improvement, models ----------

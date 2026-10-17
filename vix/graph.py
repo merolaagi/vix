@@ -67,7 +67,7 @@ def build() -> tuple[list[dict], list[dict]]:
         node(f"pb:{p.name}", "Playbook", p.title, playbook=p.name, last_status=last["status"] if last else None)
         edge(f"dept:{p.department}", f"pb:{p.name}", "OWNS")
     for r in roles.ROLES:
-        node(f"role:{r['ref']}", "Role", r["title"], requisition=r["req"], kind=r["kind"])
+        node(f"role:{r['ref']}", "Role", r["title"], kind=r["kind"])
         d = engine.DEPT.get(r["dept"])
         if d:
             edge(f"role:{r['ref']}", f"agent:{d['agent']}", "STAFFED_BY")

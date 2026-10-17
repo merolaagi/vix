@@ -407,6 +407,34 @@ def roles_catalog():
     return roles.catalog()
 
 
+@app.post("/api/roles/{ref}/run")
+def role_run(ref: str):
+    from .company import assign_playbooks as ap
+    _guard(ap.role_playbooks, ref)
+    return {"run_id": engine.start("agent_assignment", {"role": ref}, "web")}
+
+
+@app.post("/api/roles/roll-call")
+def roles_roll_call():
+    return {"run_id": engine.start("roll_call", {}, "web")}
+
+
+@app.get("/api/agents/{who}")
+def agent_assignments(who: str):
+    from .company import assign_playbooks as ap
+    return _guard(ap.assignments, who)
+
+
+@app.post("/api/agents/{who}/run")
+def agent_run(who: str, body: dict = Body(default={})):
+    from .company import assign_playbooks as ap
+    a = _guard(ap.assignments, who)
+    one = (body or {}).get("playbook") or ""
+    if one and one not in [x["playbook"] for x in a["assignments"]]:
+        raise HTTPException(400, f"{one} is not assigned to {a['agent']}")
+    return {"run_id": engine.start("agent_assignment", {"agent": a["department"], "playbook": one}, "web"), "agent": a["agent"]}
+
+
 @app.get("/api/now/table/{table}")
 def snow(table: str, sysparm_query: str = "", sysparm_limit: int = 50):
     from .company import eng_playbooks

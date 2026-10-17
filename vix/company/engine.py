@@ -237,7 +237,8 @@ def _execute(rid):
         summary, md = pb.fn(ctx)
         stamp = dt.datetime.now().strftime("%Y%m%d-%H%M")
         report = f"{stamp}-{pb.name}-r{rid}.md"
-        head = (f"# {pb.title}\n\n_{DEPT[pb.department]['name']} · agent {ctx.agent} · run {rid} · "
+        dept_now = db.scalar("select department from runs where id=?", (rid,)) or pb.department
+        head = (f"# {pb.title}\n\n_{DEPT.get(dept_now, DEPT[pb.department])['name']} · agent {ctx.agent} · run {rid} · "
                 f"{dt.datetime.now().strftime('%Y-%m-%d %H:%M')} · simulated data_\n\n")
         (REPORT_DIR / report).write_text(head + md)
         db.execute("update runs set status='done', finished=?, report=?, summary=? where id=?",
@@ -562,3 +563,4 @@ from . import growth_playbooks  # noqa: E402,F401
 from . import market_playbooks  # noqa: E402,F401
 from . import trust_playbooks  # noqa: E402,F401
 from . import evolve_playbooks  # noqa: E402,F401
+from . import assign_playbooks  # noqa: E402,F401
