@@ -55,9 +55,10 @@ def seeded() -> bool:
 def seed(force: bool = False):
     db.init()
     if seeded() and not force:
-        from . import crm, products
+        from . import crm, netinfra, products
         products.upgrade(SEED)
         crm.upgrade()
+        netinfra.upgrade(SEED)
         return
     rnd = random.Random(SEED)
     with db.conn() as c:
@@ -67,7 +68,9 @@ def seed(force: bool = False):
                   "ix_ports", "tickets", "contracts", "contract_events"):
             c.execute(f"delete from {t}")
         c.execute("delete from settings where key in ('world_version','sim_date','crm_synced','bi_loaded','crm_started_ts')")
-        for t in ("crm_account", "crm_contact", "crm_opportunity", "crm_case", "crm_asset", "crm_contract"):
+        for t in ("crm_account", "crm_contact", "crm_opportunity", "crm_case", "crm_asset", "crm_contract",
+                  "net_vendor", "net_firmware", "net_device", "net_interface", "net_link", "net_event", "net_incident",
+                  "net_impact", "net_change", "net_capacity_daily", "net_audit"):
             if c.execute("select name from sqlite_master where name=?", (t,)).fetchone():
                 c.execute(f"delete from {t}")
         for m in METROS:
@@ -176,9 +179,10 @@ def seed(force: bool = False):
                 c.execute("update metal_inventory set allocated=? where metro=? and plan=?", (used, code, plan))
     db.set_setting("world_seed", SEED)
     db.set_setting("rs_filtering", False)
-    from . import crm, products
+    from . import crm, netinfra, products
     products.upgrade(SEED)
     crm.upgrade()
+    netinfra.upgrade(SEED)
 
 
 # ---------- geography ----------

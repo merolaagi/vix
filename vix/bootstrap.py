@@ -10,6 +10,7 @@ def main():
     world.seed()
     engine.seed_schedules()
     engine.seed_v3_schedules()
+    engine.seed_v4_schedules()
     print("vix world seeded" if fresh else "vix world already present")
 
 

@@ -12,7 +12,7 @@ import time
 
 from mcp.server.mcpserver import MCPServer
 
-from . import __version__, armory, bi, crm, db, netsim, products, routerlab, thermal, world
+from . import __version__, armory, bi, crm, db, netdrivers, netinfra, netsim, products, routerlab, thermal, world
 from .company import charter as charter_mod
 from .company import engine
 from .config import MCP_PORT
@@ -28,7 +28,10 @@ mcp = MCPServer(
         "(warehouse, metrics, dashboards, Tableau .hyper export). Start with company_overview; org_chart shows the "
         "chain of command: founder <- Helm (CEO, ceo_board_pack) <- Atlas (Chief Operator: exec_operating_cycle "
         "{days} advances the simulated calendar, exec_weekly_review), Euler (Chief Scientist: rnd_research_cycle) and "
-        "Vega (Chief Data Officer: cdo_data_audit, with REA evidence). company_run returns a run id; poll company_run_status, "
+        "Vega (Chief Data Officer: cdo_data_audit, with REA evidence) and Meridian (Chief Network Officer: noc_watch, "
+        "change_manage, capacity_plan, cno_network_review, net_golive_readiness). Network agents reach gear only through a "
+        "driver layer (simulated today, NAPALM for real devices) with read-only defaults, a kill switch, approvals and "
+        "rollback. company_run returns a run id; poll company_run_status, "
         "then read company_report. Only call company_decide when the founder explicitly says to approve or "
         "reject. world_* tools read the simulated world; world_products summarises the product lines; "
         "accounts_at_risk lists renewals coming up. place_order adds demand. sim_bgp, sim_drill and sim_router "
@@ -59,7 +62,8 @@ def company_run(playbook: str, params: dict | None = None) -> dict:
     net_bgp_study {metro, event: baseline|withdraw|leak|hijack|fiber_cut, rs_filtering, edge_filtering},
     net_latency_map, energy_report, fin_monthly_close,
     rnd_router_study {link_gbps, rtt_ms, flows, ports, design_load}.
-    Data and leadership: crm_sync, bi_nightly_load, bi_export, cdo_data_audit {use_rea}, ceo_board_pack."""
+    Data and leadership: crm_sync, bi_nightly_load, bi_export, cdo_data_audit {use_rea}, ceo_board_pack.
+    Network: noc_watch, change_manage {max_new}, capacity_plan, cno_network_review, net_golive_readiness."""
     return {"run_id": engine.start(playbook, params or {}, trigger="mcp"),
             "next": "poll company_run_status(run_id); when done, company_report(report)"}
 
@@ -319,6 +323,96 @@ def board_pack_latest() -> str:
     """The latest CEO board pack (markdown), or a note to run ceo_board_pack."""
     r = db.one("select report from runs where playbook='ceo_board_pack' and status='done' order by id desc limit 1")
     return engine.safe_report(r["report"]).read_text() if r else "No board pack yet: company_run('ceo_board_pack')."
+
+
+# ---------- network ----------
+
+@mcp.tool()
+def net_summary() -> dict:
+    """Network at a glance: devices by role and status, driver modes, firmware and CVEs, backbone links,
+    open incidents, unassigned ports, live-write kill switch."""
+    return netinfra.summary()
+
+
+@mcp.tool()
+def net_inventory(site: str | None = None, role: str | None = None) -> list[dict]:
+    """Devices (hostname, site, role, vendor, model, platform, mode, firmware, status). role: core, spine, leaf, ix,
+    firewall, optical."""
+    return netinfra.inventory(site, role)
+
+
+@mcp.tool()
+def net_poll(hostname: str, getters: list[str] | None = None) -> dict:
+    """Read-only poll of one device through its driver (simulated or real NAPALM). Getters: get_facts,
+    get_interfaces, get_interfaces_counters, get_environment, get_optics, get_bgp_neighbors, get_lldp_neighbors."""
+    return netdrivers.NetworkControl("Claude").poll(hostname, getters or ["get_facts", "get_environment"])
+
+
+@mcp.tool()
+def net_blast_radius(hostname: str) -> dict:
+    """Customer services and MRR that would go down if this one device failed now."""
+    return netinfra.blast_radius(hostname)
+
+
+@mcp.tool()
+def net_incidents(days: int = 30, limit: int = 30) -> list[dict]:
+    """Network incidents in the last `days` simulated days, newest first, with diagnosis, action and credits."""
+    import datetime as _dt
+    since = (products.today_d() - _dt.timedelta(days=days)).isoformat()
+    return db.rows("select * from net_incident where sim_date>? order by id desc limit ?", (since, limit))
+
+
+@mcp.tool()
+def net_changes(status: str | None = None, limit: int = 40) -> list[dict]:
+    """Network changes (firmware upgrades): status planned, approved, awaiting_approval, done, rolled_back, needs_engineer."""
+    q, a = "select * from net_change", ()
+    if status:
+        q, a = q + " where status=?", (status,)
+    return db.rows(q + " order by id desc limit ?", a + (limit,))
+
+
+@mcp.tool()
+def net_capacity() -> list[dict]:
+    """Latest capacity snapshot: leaf ports per site, exchange ports per metro, backbone peak per link, with days to 80%."""
+    day = db.scalar("select max(date) from net_capacity_daily")
+    rows = db.rows("select * from net_capacity_daily where date=? order by util desc", (day,))
+    for r in rows:
+        r["days_to_80"] = netinfra.forecast_days(r["kind"], r["ref"])
+    return rows
+
+
+@mcp.tool()
+def net_audit_log(limit: int = 50) -> list[dict]:
+    """Every driver call on live gear and every refused write (who, what, mode, allowed, why)."""
+    return db.rows("select * from net_audit order by id desc limit ?", (limit,))
+
+
+@mcp.tool()
+def net_import_devices(devices: list[dict]) -> dict:
+    """Onboard REAL devices as read-only. Each: hostname, mgmt_ip, platform (ios | iosxr | iosxr_netconf | nxos |
+    nxos_ssh | junos | eos | mock), site (e.g. SJC1), role, vendor, model, secret_ref (env:USER_VAR:PASS_VAR or
+    keychain:<service>:<username>). Never send passwords. For a dry run use platform 'mock' with
+    fixtures '<vix>/netfixtures/mock-router'."""
+    return netdrivers.import_devices(devices)
+
+
+@mcp.tool()
+def net_request_live_control(kind: str, hostname: str | None = None, enable: bool = True) -> dict:
+    """File a decision for the founder (Meridian files it): kind 'net_live_writes' turns the global kill switch on/off;
+    kind 'net_device_mode' moves one imported device to 'live' (changes allowed) or back to 'live-readonly'.
+    Nothing changes until the founder approves it with company_decide."""
+    from .company.engine import decision_add
+    if kind == "net_live_writes":
+        did = decision_add("Meridian", "net_live_writes", f"{'Enable' if enable else 'Disable'} automated changes on live network gear",
+                           {"enable": enable, "reason": "requested from chat"})
+    elif kind == "net_device_mode":
+        if not hostname:
+            raise ValueError("hostname required")
+        did = decision_add("Meridian", "net_device_mode", f"Set {hostname} to {'live' if enable else 'live-readonly'}",
+                           {"hostname": hostname, "mode": "live" if enable else "live-readonly", "reason": "requested from chat"})
+    else:
+        raise ValueError("kind must be net_live_writes or net_device_mode")
+    return {"decision": did, "next": "the founder approves or rejects it (HQ Decisions or company_decide)"}
 
 
 class _TokenGate:

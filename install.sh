@@ -25,6 +25,7 @@ echo "Installing Python packages ..."
 .venv/bin/pip install -q --upgrade pip
 .venv/bin/pip install -q -r requirements.txt
 .venv/bin/pip install -q tableauhyperapi || echo "Note: Tableau Hyper API not installed; BI exports will be CSV only."
+.venv/bin/pip install -q napalm || echo "Note: NAPALM not installed; the network runs fully simulated until it is (pip install napalm)."
 command -v npx > /dev/null || echo "Note: REA tools need Node.js 22+ (brew install node). Everything else works without it."
 [ -f .env ] || cp .env.example .env
 if [ ! -d .git ]; then git init -q -b main; fi

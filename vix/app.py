@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
-from . import __version__, armory, bi, crm, db, products, world
+from . import __version__, armory, bi, crm, db, netinfra, products, world
 from .company import charter as charter_mod
 from .company import engine
 from .config import STATIC_DIR
@@ -19,6 +19,7 @@ async def lifespan(_app):
     world.seed()
     engine.seed_schedules()
     engine.seed_v3_schedules()
+    engine.seed_v4_schedules()
     stop = threading.Event()
     t = threading.Thread(target=engine.scheduler_loop, args=(stop,), daemon=True)
     t.start()
@@ -294,6 +295,41 @@ def bi_export_file(date: str, name: str):
 @app.get("/api/armory")
 def armory_tools():
     return armory.tools()
+
+
+@app.get("/api/net/summary")
+def net_summary():
+    return netinfra.summary()
+
+
+@app.get("/api/net/devices")
+def net_devices(site: str | None = None, role: str | None = None):
+    return netinfra.inventory(site, role)
+
+
+@app.get("/api/net/incidents")
+def net_incidents(limit: int = 40):
+    return db.rows("select * from net_incident order by id desc limit ?", (limit,))
+
+
+@app.get("/api/net/changes")
+def net_changes(limit: int = 40):
+    return db.rows("select * from net_change order by id desc limit ?", (limit,))
+
+
+@app.get("/api/net/capacity")
+def net_capacity():
+    day = db.scalar("select max(date) from net_capacity_daily")
+    rows = db.rows("select * from net_capacity_daily where date=? order by util desc limit 20", (day,))
+    for r in rows:
+        r["days_to_80"] = netinfra.forecast_days(r["kind"], r["ref"])
+    return rows
+
+
+@app.get("/api/net/kpis")
+def net_kpis():
+    from .company.net_playbooks import network_kpis
+    return {"d7": network_kpis(7), "d30": network_kpis(30), "readiness": db.setting("net_readiness")}
 
 
 @app.get("/api/org")

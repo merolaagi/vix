@@ -24,6 +24,19 @@ DEPARTMENTS = [
      "mission": "Own the company's data: the CRM, the warehouse and the dashboards. Audit that CRM, operations, BI and "
                 "Finance agree, verify with REA evidence, self-heal drift, and escalate what can't be fixed.",
      "kpis": ["data quality score", "open findings"]},
+    {"id": "cno", "name": "Office of the Chief Network Officer", "agent": "Meridian", "tier": "super", "reports_to": "ceo",
+     "mission": "Keep every customer connected: own the routers, switches, optical gear and backbone, the NOC, changes and "
+                "capacity; keep the network ready to run real gear; report availability and risk to the CEO.",
+     "kpis": ["availability", "MTTR", "critical CVE devices"]},
+    {"id": "noc", "name": "Network Operations Center", "agent": "Sentinel", "tier": "department", "reports_to": "cno",
+     "mission": "Watch every device 24x7 through the driver layer, diagnose faults, remediate, measure customer impact.",
+     "kpis": ["incidents", "MTTD", "MTTR"]},
+    {"id": "change", "name": "Change Management", "agent": "Tempo", "tier": "department", "reports_to": "cno",
+     "mission": "Plan and run firmware upgrades and config changes in maintenance windows with notice and rollback.",
+     "kpis": ["changes done", "rollbacks"]},
+    {"id": "capacity", "name": "Network Capacity", "agent": "Gauge", "tier": "department", "reports_to": "cno",
+     "mission": "Forecast port and backbone exhaustion and file capex decisions before customers wait.",
+     "kpis": ["hot spots"]},
     {"id": "exec", "name": "Office of the Chief Operator", "agent": "Atlas", "tier": "super", "reports_to": "ceo",
      "mission": "Run the business: drive the operating cycle across the departments on the simulated "
                 "calendar, review KPIs weekly and file decisions (new air or AI halls, cooling, staffing) for the founder.",
@@ -70,7 +83,7 @@ DEPARTMENTS = [
      "kpis": ["MRR", "EBITDA margin"]},
 ]
 for _d in DEPARTMENTS:
-    _d.setdefault("reports_to", {"net": "rnd"}.get(_d["id"], "exec"))
+    _d.setdefault("reports_to", {"net": "cno"}.get(_d["id"], "exec"))
 DEPT = {d["id"]: d for d in DEPARTMENTS}
 
 
@@ -221,7 +234,8 @@ def reports(limit=50):
 
 # ---------- decisions ----------
 
-DEDUPE_KEY = {"build_hall": "site", "hire_techs": "site", "cooling_upgrade": "hall", "network_standard": None}
+DEDUPE_KEY = {"build_hall": "site", "hire_techs": "site", "cooling_upgrade": "hall", "network_standard": None,
+              "network_capex": "ref", "net_change": "change", "net_live_writes": None, "net_device_mode": "hostname"}
 
 
 def decision_add(agent, kind, title, detail):
@@ -256,6 +270,24 @@ def decide(did: int, approve: bool, note: str = "") -> dict:
     if approve:
         if d["kind"] == "build_hall":
             effect = world.add_hall(detail["site"], int(detail.get("cabinets", 260)), bool(detail.get("liquid")))
+        elif d["kind"] == "network_capex":
+            from .. import netinfra
+            act = detail["action"]
+            if act == "leaf_pair":
+                effect = netinfra.add_leaf_pair(detail["ref"])
+            elif act == "backbone_400g":
+                effect = netinfra.upgrade_link(detail["ref"], 400)
+            elif act == "ix_switch":
+                effect = netinfra.add_ix_switch(detail["ref"])
+        elif d["kind"] == "net_change":
+            db.execute("update net_change set status='approved', approval='founder' where id=?", (detail["change"],))
+            effect = {"change": detail["change"], "status": "approved"}
+        elif d["kind"] == "net_live_writes":
+            db.set_setting("net_live_writes", bool(detail.get("enable", True)))
+            effect = {"net_live_writes": bool(detail.get("enable", True))}
+        elif d["kind"] == "net_device_mode":
+            db.execute("update net_device set mode=? where hostname=? and mode!='sim'", (detail["mode"], detail["hostname"]))
+            effect = {"hostname": detail["hostname"], "mode": detail["mode"]}
         elif d["kind"] == "hire_techs":
             db.execute("update sites set techs=techs+? where id=?", (int(detail.get("add", 1)), detail["site"]))
             effect = {"site": detail["site"], "techs": db.scalar("select techs from sites where id=?", (detail["site"],))}
@@ -329,6 +361,12 @@ def seed_schedules():
         schedule_add(name, every)
 
 
+def seed_v4_schedules():
+    have = {s["playbook"] for s in db.rows("select playbook from schedules")}
+    if "cno_network_review" not in have:
+        schedule_add("cno_network_review", "weekly sun 06:10")
+
+
 def seed_v3_schedules():
     have = {s["playbook"] for s in db.rows("select playbook from schedules")}
     for name, every in (("cdo_data_audit", "weekly sun 05:50"), ("ceo_board_pack", "weekly mon 07:20")):
@@ -390,11 +428,23 @@ def kpis():
         "net_retention_90d": products.retention(90)["net_retention"],
         "active_customers": db.scalar("select count(*) from contracts where status='active'"),
         "data_quality_score": (db.setting("data_quality") or {}).get("score"),
+        "network": _net_kpis(),
         "crm_open_pipeline_mrr": db.scalar("select round(coalesce(sum(MRR__c),0)) from crm_opportunity where IsClosed=0"
                                            " and Type!='Renewal'") if db.one("select name from sqlite_master where name='crm_opportunity'") else None,
         "network_standard": {"rs_filtering": bool(db.setting("rs_filtering", False)),
                              "edge_filtering": bool(db.setting("edge_filtering", False))},
     }
+
+
+def _net_kpis():
+    if not db.one("select name from sqlite_master where name='net_device'"):
+        return None
+    k = db.setting("net_kpis") or {}
+    return {"devices": db.scalar("select count(*) from net_device"),
+            "devices_down": db.scalar("select count(*) from net_device where status in ('down','unreachable')"),
+            "live_devices": db.scalar("select count(*) from net_device where mode!='sim'"),
+            "availability_30d": k.get("availability_pct"), "mttr_30d": k.get("mttr_min"),
+            "credits_30d": k.get("credits_usd"), "readiness": (db.setting("net_readiness") or {}).get("level")}
 
 
 def overview():
@@ -414,3 +464,4 @@ def overview():
 
 
 from . import playbooks  # noqa: E402,F401  (registers every playbook)
+from . import net_playbooks  # noqa: E402,F401

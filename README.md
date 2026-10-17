@@ -17,7 +17,12 @@ Every site, tenant and number is simulated and seeded. No real company is modele
 Founder (you)
 └── Helm, CEO: ceo_board_pack (weekly board pack with a recommendation on every decision)
     ├── Atlas, Chief Operator: operations departments
-    ├── Euler, Chief Scientist: R&D and Network Engineering
+    ├── Euler, Chief Scientist: R&D
+    ├── Meridian, Chief Network Officer: network health, live readiness
+    │   ├── Sentinel, NOC: noc_watch (poll, diagnose, remediate, SLA credits)
+    │   ├── Tempo, Change Management: change_manage (firmware, CVEs, windows, rollback)
+    │   ├── Gauge, Network Capacity: capacity_plan (ports, backbone, capex decisions)
+    │   └── Pathfinder, Network Engineering: net_bgp_study, net_latency_map
     └── Vega, Chief Data Officer: cdo_data_audit (reconciliation + REA evidence)
         ├── Scribe, CRM Operations: crm_sync
         └── Prism, Business Intelligence: bi_nightly_load, bi_export
@@ -47,6 +52,32 @@ Founder (you)
 Super agents delegate: their runs start child runs in the departments and write a
 summary that links each child report. Irreversible changes (a new hall, a network
 standard, extra cooling) become **decisions** the founder approves in HQ or from chat.
+
+## Network infrastructure (simulated now, real-gear ready)
+
+Every site has core routers, spine and leaf switches, firewalls; each metro has exchange
+switches and DWDM optical gear; 14 backbone links with diverse paths join the metros.
+Vendors are invented families modeled on the real archetypes (Corvid Networks chassis
+routers, Tessell merchant-silicon switches, Halcyon optical, Bastion firewalls), each with
+firmware releases, bug rates and security advisories. Every customer port, exchange port,
+virtual circuit and cloud connection is mapped to the gear it rides on, so a failed
+switch takes down exactly the single-homed customers behind it.
+
+**Driver layer.** Agents never touch the simulator. They call `NetworkControl`, which picks
+a driver per device: `SimDriver` returns NAPALM's data formats from the simulation;
+`NapalmDriver` talks to real gear (Cisco IOS/IOS-XR/NX-OS, Juniper Junos, Arista EOS via
+NAPALM). The NOC's detection and diagnosis code is identical for both.
+
+**Guardrails for real gear.** Imported devices arrive `live-readonly`: polled, never
+changed. Automated changes need all of: the global kill switch on (founder decision), the
+device set to `live` (founder decision), an approved change, today's maintenance window,
+and NAPALM commit-confirm with post-checks (rolled back otherwise). Firmware upgrades on
+live gear are never automated; Tempo issues a procedure for an engineer. Credentials are
+referenced (env vars or macOS Keychain), never stored. Every call is in `net_audit`.
+
+**Going live:** `pip install napalm` in the venv, import devices with `net_import_devices`,
+run `net_golive_readiness`. Try it safely first with NAPALM's mock driver and the bundled
+`netfixtures/mock-router` lab router (it has a dark optic the NOC will page on).
 
 ## Headless CRM (Salesforce-shaped)
 

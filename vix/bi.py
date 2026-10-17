@@ -34,11 +34,14 @@ create table if not exists fact_contract_events (date text, tenant integer, even
   mrr_after real);
 create table if not exists fact_energy_daily (date text, metro text, it_mwh real, facility_mwh real, tco2 real,
   primary key (date, metro));
+create table if not exists fact_network_daily (date text primary key, incidents integer, customer_impacting integer,
+  outage_service_minutes real, credits real, services integer, changes_done integer, changes_rolled_back integer,
+  devices_down integer);
 create table if not exists load_log (date text primary key, loaded_ts real, rows integer, seconds real);
 """
 
 FACT_TABLES = ["fact_revenue_daily", "fact_ops_daily", "fact_tickets_daily", "fact_pipeline_daily",
-               "fact_bookings_daily", "fact_contract_events", "fact_energy_daily"]
+               "fact_bookings_daily", "fact_contract_events", "fact_energy_daily", "fact_network_daily"]
 DIM_TABLES = ["dim_tenant", "dim_site"]
 
 
@@ -105,6 +108,16 @@ def load(date: str | None = None) -> dict:
                   " from ops.telemetry t join (select hall, max(id) id from ops.telemetry group by hall) l on l.id=t.id"
                   " join ops.halls h on h.id=t.hall join ops.sites s on s.id=h.site join ops.metros m on m.code=s.metro"
                   " group by s.metro", (date,))
+        if c.execute("select name from ops.sqlite_master where name='net_incident'").fetchone():
+            services = sum(c.execute(f"select count(*) from ops.{t}").fetchone()[0]
+                           for t in ("ports", "virtual_circuits", "cloud_connections", "ix_ports", "edge_devices"))
+            c.execute("insert into fact_network_daily select ?, count(*), sum(services_down>0),"
+                      " coalesce((select sum(i.minutes) from ops.net_impact i join ops.net_incident n2 on n2.id=i.incident"
+                      " where n2.sim_date=?),0), coalesce(sum(credits_usd),0), ?,"
+                      " (select count(*) from ops.net_change where window_date=? and status='done'),"
+                      " (select count(*) from ops.net_change where window_date=? and status='rolled_back'),"
+                      " (select count(*) from ops.net_device where status in ('down','unreachable'))"
+                      " from ops.net_incident where sim_date=?", (date, date, services, date, date, date))
         n = sum(c.execute(f"select count(*) from {t} where date=?", (date,)).fetchone()[0] for t in FACT_TABLES)
         secs = round(time.time() - t0, 3)
         c.execute("insert or replace into load_log values(?,?,?,?)", (date, time.time(), n, secs))
@@ -173,6 +186,21 @@ METRICS = {
                           f" where date>=date({LATEST},'-' || :days || ' day') group by date order by date"},
 }
 
+METRICS.update({
+    "network_availability_trend": {"title": "Network availability by day, %", "unit": "pct", "kind": "series",
+                                   "sql": "select date x, round(100.0*(1 - outage_service_minutes/(services*1440.0)),4) y"
+                                          " from fact_network_daily where date>=date({LATEST},'-' || :days || ' day') order by date"},
+    "network_incidents_trend": {"title": "Network incidents per day", "unit": "count", "kind": "series",
+                                "sql": "select date x, incidents y from fact_network_daily"
+                                       " where date>=date({LATEST},'-' || :days || ' day') order by date"},
+    "network_credits": {"title": "Network SLA credits", "unit": "usd", "kind": "scalar",
+                        "sql": "select coalesce(round(sum(credits)),0) from fact_network_daily"
+                               " where date>date({LATEST},'-' || :days || ' day')"},
+    "network_changes": {"title": "Maintenance changes (done / rolled back)", "unit": "count", "kind": "table",
+                        "sql": "select sum(changes_done) done, sum(changes_rolled_back) rolled_back from fact_network_daily"
+                               " where date>date({LATEST},'-' || :days || ' day')"},
+})
+
 for _m in METRICS.values():
     _m["sql"] = _m["sql"].replace("{LATEST}", LATEST)
 
@@ -186,6 +214,10 @@ DEFAULT_DASHBOARDS = {
         {"metric": "win_rate", "chart": "kpi"}, {"metric": "bookings_trend", "chart": "line", "wide": True},
         {"metric": "pipeline_by_stage", "chart": "table"}, {"metric": "top_customers", "chart": "table"},
         {"metric": "mrr_by_metro", "chart": "bar"}]},
+    "network": {"title": "Network", "owner": "Prism", "tiles": [
+        {"metric": "network_credits", "chart": "kpi"}, {"metric": "network_changes", "chart": "table"},
+        {"metric": "network_availability_trend", "chart": "line", "wide": True},
+        {"metric": "network_incidents_trend", "chart": "line", "wide": True}]},
     "operations": {"title": "Operations", "owner": "Prism", "tiles": [
         {"metric": "fleet_pue_trend", "chart": "line"}, {"metric": "utilization_trend", "chart": "line"},
         {"metric": "ai_load_trend", "chart": "line"}, {"metric": "tco2_trend", "chart": "line"},

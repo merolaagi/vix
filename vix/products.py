@@ -427,8 +427,14 @@ def renewal_probability(tid, escalator):
     since = (today_d() - dt.timedelta(days=90)).isoformat()
     misses = db.scalar("select count(*) from tickets where tenant=? and met=0 and sim_date>?", (tid, since)) or 0
     clouds = db.scalar("select count(*) from cloud_connections where tenant=?", (tid,)) or 0
-    p = 0.86 + 0.015 * min(6, xc / 10) + 0.01 * min(3, clouds) - 0.04 * min(5, misses) - 0.02 * max(0, escalator - 3)
-    return max(0.5, min(0.99, p)), {"cross_connects": xc, "sla_misses_90d": misses, "cloud_connections": clouds}
+    try:
+        outages = db.scalar("select count(distinct i.incident) from net_impact i join net_incident n on n.id=i.incident"
+                            " where i.tenant=? and n.sim_date>?", (tid, since)) or 0
+    except Exception:  # noqa: BLE001  (pre-v0.4 databases)
+        outages = 0
+    p = 0.86 + 0.015 * min(6, xc / 10) + 0.01 * min(3, clouds) - 0.04 * min(5, misses) - 0.03 * min(4, outages) - 0.02 * max(0, escalator - 3)
+    return max(0.5, min(0.99, p)), {"cross_connects": xc, "sla_misses_90d": misses, "cloud_connections": clouds,
+                                    "network_outages_90d": outages}
 
 
 def release_tenant(tid, fraction: float) -> dict:

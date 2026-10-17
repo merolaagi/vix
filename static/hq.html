@@ -71,7 +71,7 @@ th{color:var(--dim);font-weight:500;font-size:12px}td.n{font-family:var(--mono);
 <header>
   <div><div class="brand"><b>vix</b> HQ</div><div class="tag" id="tagline">Virtual Interconnection eXchange · simulated</div></div>
   <nav>
-    <button data-t="overview" class="on">Overview</button><button data-t="world">World</button><button data-t="business">Business</button><button data-t="insights">Insights</button><button data-t="crm">CRM</button>
+    <button data-t="overview" class="on">Overview</button><button data-t="world">World</button><button data-t="business">Business</button><button data-t="insights">Insights</button><button data-t="crm">CRM</button><button data-t="network">Network</button>
     <button data-t="decisions">Decisions <span id="dcount"></span></button><button data-t="reports">Reports</button>
     <button data-t="schedules">Schedules</button>
   </nav>
@@ -125,6 +125,19 @@ th{color:var(--dim);font-weight:500;font-size:12px}td.n{font-family:var(--mono);
       <a href="#" data-q="SELECT COUNT() FROM Case">count cases</a></div>
       <p class="note" id="qnote"></p><div class="tw"><table id="qres"></table></div>
       <p class="note">Same API Salesforce clients use: <code>GET /services/data/v60.0/query?q=…</code></p></div>
+  </section>
+  <section class="tab" id="network">
+    <div class="kpis" id="netk" style="margin-top:14px"></div>
+    <p class="note" id="netready"></p>
+    <div class="grid wide">
+      <div><h2>Backbone</h2><div class="tw"><table id="links"></table></div></div>
+      <div><h2>Capacity hot spots</h2><div class="tw"><table id="cap"></table></div></div>
+    </div>
+    <h2>Incidents</h2><div class="tw"><table id="inc"></table></div>
+    <h2>Changes</h2><div class="tw"><table id="chg"></table></div>
+    <h2>Devices <select id="netrole"><option value="">all roles</option><option>core</option><option>spine</option><option>leaf</option><option>ix</option><option>firewall</option><option>optical</option></select>
+      <select id="netstatus"><option value="">any status</option><option>up</option><option>degraded</option><option>down</option></select></h2>
+    <div class="tw"><table id="devs"></table></div>
   </section>
   <section class="tab" id="decisions"><h2>Decisions filed by the super agents</h2><div id="declist"></div></section>
   <section class="tab" id="reports"><div class="split"><div class="list" id="replist"></div><div class="md" id="repview"><p class="note">Pick a report.</p></div></div></section>
@@ -315,7 +328,23 @@ async function runSoql(){
   catch(e){$('#qnote').textContent='Error: '+e.message;$('#qres').innerHTML=''}}
 $('#runq').onclick=runSoql;$('#soql').onkeydown=e=>{if(e.key==='Enter')runSoql()};
 document.querySelectorAll('[data-q]').forEach(a=>a.onclick=e=>{e.preventDefault();$('#soql').value=a.dataset.q;runSoql()});
-function load(t){({overview,world:worldTab,business:businessTab,insights:insightsTab,crm:crmTab,decisions:decisionsTab,reports,schedules:schedTab})[t]().catch(e=>toast(e.message))}
+async function networkTab(){
+  const [k,sm,inc,chg,cap]=await Promise.all([api('/api/net/kpis'),api('/api/net/summary'),api('/api/net/incidents?limit=25'),api('/api/net/changes?limit=25'),api('/api/net/capacity')]);
+  const d=k.d30,dev=sm.devices.reduce((a,r)=>({n:a.n+r.n,down:a.down+(r.down||0),deg:a.deg+(r.degraded||0)}),{n:0,down:0,deg:0});
+  $('#netk').innerHTML=[['Availability 30d',d.availability_pct+'%'],['Incidents 30d',`${d.incidents} (${d.customer_impacting} hit customers)`],
+    ['MTTD / MTTR',`${d.mttd_min??'–'} / ${d.mttr_min??'–'} min`],['SLA credits 30d',money(d.credits_usd)],['Devices',`${dev.n} · ${dev.down} down · ${dev.deg} degraded`],
+    ['Vulnerable firmware',d.devices_critical_cve+' devices'],['Changes 30d',`${d.changes_done} done · ${d.changes_rolled_back} rolled back`],
+    ['Live devices',`${d.live_devices} · writes ${d.live_writes?'ON':'off'}`]].map(([l,v])=>`<div class="kpi"><div class="v" style="font-size:16px">${esc(v)}</div><div class="l">${l}</div></div>`).join('');
+  const rd=k.readiness;$('#netready').innerHTML=rd?`Go-live readiness: <b>${esc(rd.level)}</b> (${rd.date}). ${esc(rd.summary)}.`:'Go-live readiness not assessed yet: run <b>Go-live readiness</b> (Chief Network Officer).';
+  $('#links').innerHTML='<tr><th>Link</th><th>km</th><th>Capacity</th><th>Status</th></tr>'+sm.links.map(l=>`<tr><td>${l.id}</td><td class="n">${l.km.toLocaleString()}</td><td class="n">${l.capacity_g}G</td><td><span class="st ${l.status==='up'?'done':'failed'}">${l.status}</span></td></tr>`).join('');
+  $('#cap').innerHTML='<tr><th>Pool</th><th>Used/total</th><th>Util</th><th>80% in</th></tr>'+cap.slice(0,12).map(c=>`<tr><td>${c.kind.replace('_',' ')} ${c.ref}</td><td class="n">${Math.round(c.used)}/${c.total}</td><td>${bar(c.util)}</td><td class="n">${c.days_to_80==null?'–':c.days_to_80+' d'}</td></tr>`).join('');
+  $('#inc').innerHTML='<tr><th>Date</th><th>Target</th><th>Cause</th><th>Diagnosis</th><th>Action</th><th>Min</th><th>Cust.</th><th>Credits</th></tr>'+(inc.map(i=>`<tr><td class="note">${i.sim_date}</td><td>${esc(i.target)}</td><td>${i.cause}</td><td class="note">${esc(i.diagnosis)}</td><td>${esc(i.action)}</td><td class="n">${Math.round(i.restored_min-i.start_min)}</td><td class="n">${i.customers}</td><td class="n">${money(i.credits_usd)}</td></tr>`).join('')||'<tr><td class="note">No incidents yet: run the operating cycle.</td></tr>');
+  $('#chg').innerHTML='<tr><th>#</th><th>Device</th><th>Upgrade</th><th>Window</th><th>Risk</th><th>Status</th><th>Why / result</th></tr>'+(chg.map(c=>`<tr><td class="n">${c.id}</td><td>${esc(c.device)}</td><td class="note">${c.from_ver||''} → ${c.to_ver||''}</td><td class="note">${c.window_date}</td><td>${c.risk||''}</td><td><span class="st ${c.status==='done'?'done':c.status==='rolled_back'?'failed':'running'}">${c.status}</span></td><td class="note">${esc(c.result||c.notes||'')}</td></tr>`).join('')||'<tr><td class="note">No changes yet.</td></tr>');
+  $('#netrole').onchange=$('#netstatus').onchange=netDevices;netDevices()}
+async function netDevices(){
+  let ds=await api('/api/net/devices'+($('#netrole').value?'?role='+$('#netrole').value:''));const st=$('#netstatus').value;if(st)ds=ds.filter(d=>d.status===st);
+  $('#devs').innerHTML='<tr><th>Hostname</th><th>Site</th><th>Role</th><th>Model</th><th>Firmware</th><th>Driver</th><th>Status</th></tr>'+ds.slice(0,200).map(d=>`<tr><td><b>${esc(d.hostname)}</b></td><td>${d.site}</td><td>${d.role}</td><td class="note">${esc(d.vendor)} ${esc(d.model)}</td><td class="note">${esc(d.os_version)}</td><td class="note">${d.mode==='sim'?'sim':`<b>${d.mode}</b> ${esc(d.platform)}`}</td><td><span class="st ${d.status==='up'?'done':d.status==='degraded'?'running':'failed'}">${d.status}</span></td></tr>`).join('')+(ds.length>200?`<tr><td class="note" colspan="7">${ds.length-200} more…</td></tr>`:'')}
+function load(t){({overview,world:worldTab,business:businessTab,insights:insightsTab,crm:crmTab,network:networkTab,decisions:decisionsTab,reports,schedules:schedTab})[t]().catch(e=>toast(e.message))}
 overview().catch(e=>toast(e.message));setInterval(()=>{if($('#overview').classList.contains('on'))overview().catch(()=>{})},20000);
 </script>
 </body>

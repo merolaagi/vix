@@ -164,6 +164,19 @@ def sync(rnd: random.Random | None = None) -> dict:
                         "High" if r[4] == "urgent" else "Medium", "Closed", "Remote Hands Portal", r[2], r[6], r[7], r[8],
                         r[5], r[0]) for r in rows])
         out["cases_new"] = len(rows)
+    with db.conn() as c:
+        if c.execute("select name from sqlite_master where name='net_impact'").fetchone():
+            done = {r[0] for r in c.execute("select -Ticket__c from crm_case where Type='network_outage'")}
+            rows = c.execute("select i.rowid, i.tenant, i.service_kind, i.service_id, i.minutes, i.credit_usd, n.sim_date,"
+                             " n.target, n.cause, n.severity from net_impact i join net_incident n on n.id=i.incident"
+                             " where i.incident>0").fetchall()
+            new = [r for r in rows if r[0] not in done]
+            c.executemany("insert into crm_case values(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                          [(sfid("Case", 9_000_000_000 + r[0]), account_id(r[1]),
+                            f"Network outage: {r[2].replace('_', ' ')} {r[3]} ({r[8]} on {r[7]}, {r[4]:.0f} min)",
+                            "network_outage", "High" if r[9] == "sev1" else "Medium", "Closed", "NOC",
+                            r[7].split("-")[0].upper()[:4], None, 0, -r[5], r[6], -r[0]) for r in new])
+            out["network_cases_new"] = len(new)
     db.set_setting("crm_synced", today)
     return out
 

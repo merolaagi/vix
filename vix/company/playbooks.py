@@ -433,15 +433,21 @@ def fin_monthly_close(ctx):
     opex = sites * world.SITE_OPEX_MONTH
     techs = db.scalar("select coalesce(sum(techs),0) from sites") or 0
     labour = techs * products.TECH_COST_MONTH
+    since30 = (products.today_d() - dt.timedelta(days=30)).isoformat()
+    credits = db.scalar("select coalesce(sum(credits_usd),0) from net_incident where sim_date>?", (since30,)) or 0
+    n_dev = db.scalar("select count(*) from net_device") or 0
+    net_support = n_dev * 900.0
     dep = capex / 240
-    ebitda = rev["total"] - power_cost - opex - labour
+    ebitda = rev["total"] - credits - power_cost - opex - labour - net_support
     margin = round(ebitda / rev["total"], 3) if rev["total"] else None
-    snap = {"sim_date": products.today(), "mrr": rev["total"], "power_cost": round(power_cost), "opex": opex, "tech_labour": round(labour), "ebitda": round(ebitda),
+    snap = {"sim_date": products.today(), "mrr": rev["total"], "power_cost": round(power_cost), "opex": opex, "tech_labour": round(labour), "sla_credits": round(credits), "net_support": round(net_support), "ebitda": round(ebitda),
             "ebitda_margin": margin, "depreciation": round(dep), "ebit": round(ebitda - dep), "ts": time.time()}
     db.set_setting("fin_last", snap)
     ctx.log(f"MRR {usd(rev['total'])}, EBITDA margin {margin:.1%}")
     md = ("## P&L (one month)\n\n" + table([
         {"line": "Revenue", "usd": usd(rev["total"])},
+        {"line": "Network SLA credits (last 30 days)", "usd": "-" + usd(credits)},
+        {"line": f"Network support and spares ({n_dev} devices)", "usd": "-" + usd(net_support)},
         {"line": "Power", "usd": "-" + usd(power_cost)},
         {"line": "Site opex", "usd": "-" + usd(opex)},
         {"line": f"Remote-hands technicians ({techs} posts, 24x7)", "usd": "-" + usd(labour)},
@@ -617,8 +623,11 @@ def _audit_checks(use_rea: bool):
         ops_n = db.scalar(f"select count(*) from ({sql})")
         crm_n = db.scalar("select count(*) from crm_asset where Status='Installed' and Source__c like ?", (src + ":%",))
         add(f"Assets: {src.replace('_', ' ')}", ops_n == crm_n, f"operations {ops_n} / CRM installed {crm_n}")
-    t, cs = db.scalar("select count(*) from tickets"), db.scalar("select count(*) from crm_case")
+    t, cs = db.scalar("select count(*) from tickets"), db.scalar("select count(*) from crm_case where Type!='network_outage'")
     add("Every ticket has a case", t == cs, f"{t:,} tickets / {cs:,} cases")
+    outages = db.scalar("select count(*) from net_impact where incident>0")
+    ncases = db.scalar("select count(*) from crm_case where Type='network_outage'")
+    add("Every network outage has a customer case", outages == ncases, f"{outages} impacted services / {ncases} cases")
     broken = db.scalar("select count(*) from crm_opportunity o where IsWon=1 and Type!='Renewal'"
                        " and not exists (select 1 from orders r where r.id=o.Order__c)")
     add("Won opportunities have orders", broken == 0, f"{broken} won opportunities without an order")
@@ -730,6 +739,30 @@ def _recommend(d):
             return "approve", f"waitlisted demand worth ${demand:,.0f}/mo pays back ${capex:,.0f} in {payback:.0f} months"
         return "hold", (f"waitlisted demand only ${demand:,.0f}/mo against ${capex:,.0f} capex" if demand
                         else "no waitlisted demand behind it yet; the halls are tight on power but customers are not queuing")
+    if d["kind"] == "network_capex":
+        days = det.get("days_to_80")
+        if (det.get("util") or 0) >= 0.8 or (days is not None and days <= 60):
+            return "approve", f"{det.get('reason')}; ${det.get('capex_usd', 0):,.0f}"
+        return "hold", f"{det.get('reason')}; not urgent yet, revisit in two weeks"
+    if d["kind"] == "net_change":
+        dev = db.one("select status, ha_peer from net_device where hostname=?", (det["device"],))
+        peer = db.one("select status from net_device where hostname=?", (dev["ha_peer"],)) if dev and dev["ha_peer"] else None
+        if dev and dev["status"] == "up" and (not peer or peer["status"] == "up"):
+            return "approve", f"{det.get('reason')}; HA peer healthy, customers notified, window {det.get('window')}"
+        return "hold", "device or its HA peer is not healthy right now"
+    if d["kind"] in ("net_live_writes", "net_device_mode"):
+        rd = db.setting("net_readiness") or {}
+        lvl, since = rd.get("level"), db.setting("net_monitoring_since")
+        if d["kind"] == "net_live_writes" and not det.get("enable", True):
+            return "approve", "turning automated changes off is always safe"
+        if lvl not in ("read-only monitoring", "supervised changes"):
+            return "hold", f"readiness is '{lvl or 'not assessed'}'; run net_golive_readiness until it reaches read-only monitoring"
+        days = (products.today_d() - dt.date.fromisoformat(since)).days if since else 0
+        if days < 14:
+            return "hold", (f"real gear has only been watched read-only for {days} day(s); run 14 days of read-only "
+                            "monitoring with clean NOC results before allowing automated changes")
+        return "approve", (f"{days} days of read-only monitoring passed; every change still needs approval, "
+                           "a window, commit-confirm and post-checks")
     if d["kind"] == "hire_techs":
         site = det["site"]
         s30 = next((s for s in bi.metric("sla_by_site", 30)["value"] if s["site"] == site), None)
@@ -759,7 +792,8 @@ def ceo_board_pack(ctx):
     atlas = ctx.child("exec_weekly_review")
     euler = ctx.child("rnd_research_cycle")
     vega = ctx.child("cdo_data_audit")
-    a, e, v = atlas["summary"] or {}, euler["summary"] or {}, vega["summary"] or {}
+    mer = ctx.child("cno_network_review")
+    a, e, v, n = atlas["summary"] or {}, euler["summary"] or {}, vega["summary"] or {}, mer["summary"] or {}
     mrr = bi.metric("mrr")["value"] or 0
     trend = bi.metric("mrr_trend", 30)["value"]
     wk = [x for x in trend if x["x"] <= (products.today_d() - dt.timedelta(days=7)).isoformat()]
@@ -771,6 +805,8 @@ def ceo_board_pack(ctx):
         {"metric": "Churned/downsized MRR (90d)", "value": usd(bi.metric('churned_mrr', 90)['value'] or 0), "vs 7 days": ""},
         {"metric": "EBITDA margin", "value": f"{(a.get('ebitda_margin') or 0):.1%}", "vs 7 days": ""},
         {"metric": "Data quality", "value": f"{v.get('score')}", "vs 7 days": ""},
+        {"metric": "Network availability (30d)", "value": f"{n.get('availability_30d')}%", "vs 7 days": f"7d {n.get('availability_7d')}%"},
+        {"metric": "Network SLA credits (30d)", "value": usd(n.get('credits_30d') or 0), "vs 7 days": ""},
     ]
     consistent = abs((a.get("mrr") or 0) - mrr) <= 1
     risks = []
@@ -785,6 +821,8 @@ def ceo_board_pack(ctx):
         risks.append(f"{wl} orders waitlisted for capacity")
     for x in v.get("escalations", []):
         risks.append(f"Data escalation from Vega: {x}")
+    for x in n.get("escalations", []):
+        risks.append(f"Network escalation from Meridian: {x}")
     recs = []
     for d in decisions("open"):
         verdict, why = _recommend(d)
@@ -799,6 +837,9 @@ def ceo_board_pack(ctx):
           f"- **Euler (research):** next AI halls in {', '.join(e.get('best_ai_metros') or []) or 'n/a'}; "
           + (f"proposed network standard (decision #{e['proposal']})" if e.get("proposal") else "no new standard proposed")
           + f". Report: {euler['report']}\n"
+          f"- **Meridian (network):** availability {n.get('availability_30d')}% over 30 days, {n.get('incidents_30d')} incidents, "
+          f"MTTR {n.get('mttr_30d')} min, {n.get('critical_cve_devices')} devices on vulnerable firmware, live readiness: "
+          f"{n.get('readiness') or 'not assessed'}. Report: {mer['report']}\n"
           f"- **Vega (data):** quality {v.get('score')}, {v.get('fail', 0)} fail, {v.get('warn', 0)} warn"
           + (f", self-healed {', '.join(v['healed'])}" if v.get("healed") else "") + f". Report: {vega['report']}\n"
           "\n## Risks\n\n" + ("".join(f"- {r}\n" for r in risks) or "- None worth your time this week.\n") +
@@ -818,11 +859,19 @@ def ceo_board_pack(ctx):
           {"days": {"type": "int", "default": 1}})
 def exec_operating_cycle(ctx):
     steps = ["sales_demand_cycle", "ops_fulfill_space", "ix_fulfill_orders", "digital_fulfill_orders",
-             "metal_fulfill_orders", "cx_ticket_desk", "accounts_renewals", "ops_daily_health", "energy_report",
-             "crm_sync", "bi_nightly_load"]
+             "metal_fulfill_orders", "cx_ticket_desk", "noc_watch", "change_manage", "accounts_renewals",
+             "ops_daily_health", "energy_report", "crm_sync", "bi_nightly_load"]
     days = max(1, min(365, ctx.p("days", 1, int)))
+
+    def physics():
+        from .. import netinfra
+        r = random.Random(f"net-{products.today()}-{time.time()}")
+        netinfra.assign_ports()
+        netinfra.simulate_day(r)
+        netinfra.capacity_snapshot()
     if days == 1:
         day = products.advance(1)
+        physics()
         ctx.log(f"simulated day {day}")
         rows = []
         for name in steps:
@@ -839,17 +888,26 @@ def exec_operating_cycle(ctx):
     start_mrr = world.revenue_breakdown()["total"]
     start = products.today()
     log = []
+    week = {"net_incidents": 0, "credits": 0.0, "upgrades": 0}
     for d in range(days):
         day = products.advance(1)
+        physics()
         out = {name: ctx.inline(name) for name in steps}
         if (d + 1) % 7 == 0:
             ctx.inline("exec_weekly_review")
+            ctx.inline("cno_network_review")
         row = {"day": day, "orders": out["sales_demand_cycle"]["orders"],
                "new_logos": out["sales_demand_cycle"]["new_tenants"],
                "tickets": out["cx_ticket_desk"]["tickets"], "sla_pct": out["cx_ticket_desk"]["sla_pct"],
-               **out["accounts_renewals"]["by_event"], "pue": out["ops_daily_health"]["fleet_pue"]}
+               **out["accounts_renewals"]["by_event"], "pue": out["ops_daily_health"]["fleet_pue"],
+               }
+        week["net_incidents"] += out["noc_watch"]["incidents"]
+        week["credits"] += out["noc_watch"]["credits_usd"]
+        week["upgrades"] += out["change_manage"]["executed"]
         if (d + 1) % 7 == 0 or d == days - 1:
             row["mrr"] = round(world.revenue_breakdown()["total"])
+            row.update({"net_incidents": week["net_incidents"], "credits": round(week["credits"]), "upgrades": week["upgrades"]})
+            week = {"net_incidents": 0, "credits": 0.0, "upgrades": 0}
         log.append(row)
         if d % 10 == 0:
             ctx.log(f"day {day}")
@@ -863,7 +921,9 @@ def exec_operating_cycle(ctx):
           f"({100 * (end_mrr / start_mrr - 1):+.1f}%). {tot('orders')} orders, {tot('new_logos')} new logos, "
           f"{tot('renewed')} renewals, {tot('downsized')} downsizes, {tot('churned')} churned. "
           f"{k['open_decisions']} decisions await the founder.\n\n## Week by week\n\n" +
-          table(weekly, ["day", "orders", "new_logos", "tickets", "sla_pct", "renewed", "downsized", "churned", "pue", "mrr"]) +
+          "_Network columns are totals for the week; the others are that day's figures._\n\n" +
+          table(weekly, ["day", "orders", "new_logos", "tickets", "sla_pct", "net_incidents", "credits", "upgrades",
+                         "renewed", "downsized", "churned", "pue", "mrr"]) +
           "\n## KPIs now\n\n" + table([{"kpi": a, "value": json.dumps(b) if isinstance(b, dict) else b}
                                           for a, b in k.items()], ["kpi", "value"]) +
           "\n_Department steps ran inline (no separate reports) to keep a long fast-forward readable._\n")

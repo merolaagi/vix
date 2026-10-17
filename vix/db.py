@@ -109,12 +109,19 @@ COLUMNS = [
 ]
 
 _lock = threading.Lock()
+_local = threading.local()
 
 
 def conn():
-    c = sqlite3.connect(DB_PATH, timeout=30)
-    c.row_factory = sqlite3.Row
-    c.execute("pragma journal_mode=wal")
+    """One connection per thread, reused (opening SQLite per query dominated run time).
+    Use it as a context manager for a transaction: commit on success, rollback on error."""
+    c = getattr(_local, "c", None)
+    if c is None:
+        c = sqlite3.connect(DB_PATH, timeout=30)
+        c.row_factory = sqlite3.Row
+        c.execute("pragma journal_mode=wal")
+        c.execute("pragma synchronous=normal")
+        _local.c = c
     return c
 
 
