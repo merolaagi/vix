@@ -28,7 +28,7 @@ if not done: out.append(f"{k}={v}")
 p.write_text("\n".join(out) + "\n")
 PY
 }
-cget() { curl --doh-url https://1.1.1.1/dns-query "$@" 2>/dev/null || curl "$@"; }
+cget() { local r; r="$(curl --doh-url https://1.1.1.1/dns-query "$@" 2>/dev/null)"; case "$r" in ""|000) r="$(curl "$@" 2>/dev/null)";; esac; printf '%s' "${r:-000}"; }
 
 [ -d .venv ] || die "run this from ~/Sites/vix after install.sh"
 [ -f "$CFG" ] || die "no tunnel config at $CFG (set CF_CONFIG=/path/to/config.yml)"
@@ -132,6 +132,10 @@ for i in $(seq 1 30); do
   CODE="$(cget -s -o /dev/null -m 8 -w '%{http_code}' "https://$HQHOST/")"
   case "$CODE" in 000|530|1033|502) printf '.'; sleep 4 ;; *) break ;; esac
 done; echo
+for i in $(seq 1 10); do
+  MCODE="$(cget -s -o /dev/null -m 8 -w '%{http_code}' "https://$MCPHOST/mcp")"
+  case "$MCODE" in 000|530|1033|502) sleep 4 ;; *) break ;; esac
+done
 case "$CODE" in
   303|302|200) ok "HQ live: https://$HQHOST (asks for the HQ password)";;
   503) warn "HQ answers but says no password is set; run: .venv/bin/python -m vix.hqauth && ./serve.sh";;
@@ -140,7 +144,6 @@ case "$CODE" in
   000|530) warn "not reachable yet; DNS may still be propagating (Tailscale DNS caches misses). Try: ./publish.sh --status";;
   *) warn "HTTP $CODE from https://$HQHOST";;
 esac
-MCODE="$(cget -s -o /dev/null -m 8 -w '%{http_code}' "https://$MCPHOST/mcp")"
 case "$MCODE" in
   401) ok "MCP live: https://$MCPHOST (refuses requests without the token, as it should)";;
   421|400) warn "MCP rejected the hostname (HTTP $MCODE); check VIX_MCP_PUBLIC_HOST in .env and run ./serve.sh";;
