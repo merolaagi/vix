@@ -65,7 +65,48 @@ create table if not exists decisions (
   status text, resolved_ts real, note text
 );
 create table if not exists settings (key text primary key, value text);
+create table if not exists clouds (
+  id text primary key, name text, route_count integer
+);
+create table if not exists cloud_onramps (
+  cloud text, metro text, capacity_mbps integer, used_mbps integer default 0, primary key (cloud, metro)
+);
+create table if not exists cloud_routers (
+  id integer primary key, tenant integer, metro text, package text, ts real
+);
+create table if not exists cloud_connections (
+  id integer primary key, tenant integer, cloud text, metro text, mbps integer, router integer, ts real
+);
+create table if not exists edge_pool (
+  metro text primary key, vcpu_total integer, vcpu_used integer default 0
+);
+create table if not exists edge_devices (
+  id integer primary key, tenant integer, metro text, role text, size text, vcpu integer, ha integer, ts real
+);
+create table if not exists ix_ports (
+  id integer primary key, tenant integer, metro text, speed_g integer, ts real
+);
+create table if not exists tickets (
+  id integer primary key, tenant integer, site text, kind text, priority text, sim_date text,
+  opened_min real, sla_min real, work_min real, done_min real, met integer, billed_usd real
+);
+create table if not exists contracts (
+  tenant integer primary key, start_date text, end_date text, term_months integer,
+  escalator_pct real, status text
+);
+create table if not exists contract_events (
+  id integer primary key, ts real, sim_date text, tenant integer, event text,
+  mrr_before real, mrr_after real, note text
+);
 """
+
+# columns added after v0.1 (table, column, type + default)
+COLUMNS = [
+    ("halls", "cooling_type", "text default 'air'"),
+    ("halls", "kw_per_cab_design", "real default 6"),
+    ("sites", "techs", "integer default 2"),
+    ("tenants", "price_index", "real default 1.0"),
+]
 
 _lock = threading.Lock()
 
@@ -80,6 +121,10 @@ def conn():
 def init():
     with _lock, conn() as c:
         c.executescript(SCHEMA)
+        for table, col, decl in COLUMNS:
+            have = {r[1] for r in c.execute(f"pragma table_info({table})")}
+            if col not in have:
+                c.execute(f"alter table {table} add column {col} {decl}")
 
 
 def rows(sql, args=()):

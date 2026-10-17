@@ -25,6 +25,8 @@ h2{font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.12em;color
 .kpi{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
 .kpi .v{font:600 20px var(--mono)}.kpi .l{color:var(--dim);font-size:12px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;align-items:start}
+.grid.wide{grid-template-columns:repeat(auto-fill,minmax(440px,1fr))}
+@media(max-width:520px){.grid.wide{grid-template-columns:1fr}}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
 .card.super{border-color:#3b4f63;background:linear-gradient(180deg,#17212c,var(--panel))}
 .card h3{margin:0 0 2px;font-size:15px}.agent{font:600 12px var(--mono);color:var(--accent)}
@@ -63,7 +65,7 @@ th{color:var(--dim);font-weight:500;font-size:12px}td.n{font-family:var(--mono);
 <header>
   <div><div class="brand"><b>vix</b> HQ</div><div class="tag" id="tagline">Virtual Interconnection eXchange · simulated</div></div>
   <nav>
-    <button data-t="overview" class="on">Overview</button><button data-t="world">World</button>
+    <button data-t="overview" class="on">Overview</button><button data-t="world">World</button><button data-t="business">Business</button>
     <button data-t="decisions">Decisions <span id="dcount"></span></button><button data-t="reports">Reports</button>
     <button data-t="schedules">Schedules</button>
   </nav>
@@ -80,6 +82,20 @@ th{color:var(--dim);font-weight:500;font-size:12px}td.n{font-family:var(--mono);
     <h2>Halls <select id="hallMetro"><option value="">all metros</option></select></h2><div class="tw"><table id="halls"></table></div>
     <h2>Round-trip latency (ms)</h2><div class="tw"><table class="heat" id="lat"></table></div>
     <p class="note" id="latnote"></p>
+  </section>
+  <section class="tab" id="business">
+    <h2>Revenue by product (monthly)</h2><div class="tw"><table id="rev"></table></div>
+    <div class="grid wide" style="margin-top:12px">
+      <div><h2>Cloud on-ramps</h2><div class="tw"><table id="clouds"></table></div></div>
+      <div><h2>Network Edge pools</h2><div class="tw"><table id="edge"></table></div></div>
+      <div><h2>Internet exchange</h2><div class="tw"><table id="ix"></table></div></div>
+      <div><h2>AI halls (liquid-cooled)</h2><div class="tw"><table id="ai"></table></div></div>
+    </div>
+    <h2>Customers</h2><p class="note" id="ret"></p>
+    <div class="grid wide">
+      <div><h2>At risk (next 90 days)</h2><div class="tw"><table id="risk"></table></div></div>
+      <div><h2>Recent contract events</h2><div class="tw"><table id="events"></table></div></div>
+    </div>
   </section>
   <section class="tab" id="decisions"><h2>Decisions filed by the super agents</h2><div id="declist"></div></section>
   <section class="tab" id="reports"><div class="split"><div class="list" id="replist"></div><div class="md" id="repview"><p class="note">Pick a report.</p></div></div></section>
@@ -124,9 +140,12 @@ async function overview(){
   const o=await api('/api/company');const k=o.kpis;
   $('#tagline').textContent=o.charter.tagline;
   $('#dcount').textContent=k.open_decisions?`(${k.open_decisions})`:'';
-  const tiles=[['MRR',money(k.mrr_usd)],['EBITDA margin',pct(k.ebitda_margin)],['Cabinet util',pct(k.cabinet_util)],['IT load',k.it_load_mw+' MW'],
+  const tiles=[['Sim date',k.sim_date],['MRR',money(k.mrr_usd)],['EBITDA margin',pct(k.ebitda_margin)],['Cabinet util',pct(k.cabinet_util)],['IT load',k.it_load_mw+' MW'],
    ['Fleet PUE',k.fleet_pue??'–'],['Sites / halls',k.sites+' / '+k.halls],['Tenants',k.tenants],['Cross-connects',k.cross_connects.toLocaleString()],
    ['Virtual circuits',k.virtual_circuits],['Waitlisted',k.orders_waitlisted],['Open decisions',k.open_decisions],['Runs 7d',k.runs_7d+(k.failed_7d?` (${k.failed_7d} failed)`:'')],
+   ['AI load',k.ai_it_mw+' MW'],['Cloud connections',k.cloud_connections],['Edge devices',k.edge_devices],['IX members',k.ix_members],
+   ['Remote-hands SLA 30d',k.remote_hands_sla_30d==null?'–':k.remote_hands_sla_30d+'%'],['Net retention 90d',k.net_retention_90d==null?'–':pct(k.net_retention_90d)],
+   ['Active customers',k.active_customers],
    ['Route filtering',(k.network_standard.rs_filtering?'RS ':'')+(k.network_standard.edge_filtering?'edge':'')||'off']];
   $('#kpis').innerHTML=tiles.map(([l,v])=>`<div class="kpi"><div class="v">${esc(v)}</div><div class="l">${l}</div></div>`).join('');
   $('#supers').innerHTML=o.departments.filter(d=>d.tier==='super').map(deptHtml).join('');
@@ -183,7 +202,7 @@ async function worldTab(){
 }
 async function halls(){const hs=await api('/api/world/halls'+($('#hallMetro').value?'?metro='+$('#hallMetro').value:''));
   $('#halls').innerHTML='<tr><th>Hall</th><th>Cabinets</th><th>Space</th><th>Power (contracted/utility kW)</th><th>Power</th><th>IT kW</th><th>Cooling</th></tr>'+
-  hs.map(h=>`<tr><td><b>${h.id}</b></td><td class="n">${h.cabinets_sold}/${h.cabinets_total}</td><td>${bar(h.cab_util)}</td><td class="n">${Math.round(h.contracted_kw)}/${h.utility_kw}</td><td>${bar(h.power_util)}</td><td class="n">${Math.round(h.it_load_kw)}</td><td class="n" style="color:${h.crah_down?'var(--amber)':'inherit'}">${h.crah_units-h.crah_down}/${h.crah_units} CRAH</td></tr>`).join('')}
+  hs.map(h=>`<tr><td><b>${h.id}</b> ${h.cooling_type==='liquid'?'<span class="st running">liquid</span>':''}</td><td class="n">${h.cabinets_sold}/${h.cabinets_total}</td><td>${bar(h.cab_util)}</td><td class="n">${Math.round(h.contracted_kw)}/${h.utility_kw}</td><td>${bar(h.power_util)}</td><td class="n">${Math.round(h.it_load_kw)}</td><td class="n" style="color:${h.crah_down?'var(--amber)':'inherit'}">${h.crah_units-h.crah_down}/${h.crah_units} ${h.cooling_type==='liquid'?'CDU':'CRAH'}</td></tr>`).join('')}
 
 async function decisionsTab(){const ds=await api('/api/company/decisions');
   $('#declist').innerHTML=ds.map(d=>`<div class="card" style="margin-bottom:10px"><div class="dec"><div><div class="agent">#${d.id} · ${esc(d.agent)} · ${d.kind}</div><h3>${esc(d.title)}</h3>
@@ -201,7 +220,23 @@ async function schedTab(){const ss=await api('/api/company/schedules');
   const pbs=await api('/api/company/playbooks');$('#sPb').innerHTML=pbs.map(p=>`<option value="${p.name}">${p.name}</option>`).join('')}
 $('#sAdd').onclick=async()=>{try{await api('/api/company/schedules',{method:'POST',body:JSON.stringify({playbook:$('#sPb').value,every:$('#sEvery').value})});schedTab()}catch(err){toast(err.message)}};
 
-function load(t){({overview,world:worldTab,decisions:decisionsTab,reports,schedules:schedTab})[t]().catch(e=>toast(e.message))}
+async function businessTab(){
+  const [p,a]=await Promise.all([api('/api/world/products'),api('/api/world/accounts')]);
+  const rv=p.revenue_by_product, tot=rv.total, ent=Object.entries(rv).filter(([k])=>k!=='total'), mx=Math.max(...ent.map(([,v])=>v));
+  $('#rev').innerHTML='<tr><th>Product</th><th>MRR</th><th>Share</th><th></th></tr>'+ent.sort((x,y)=>y[1]-x[1]).map(([k,v])=>
+    `<tr><td>${k.replace(/_/g,' ')}</td><td class="n">${money(v)}</td><td class="n">${pct(v/tot)}</td><td style="width:40%"><div class="bar"><i style="width:${v/mx*100}%"></i></div></td></tr>`).join('')+
+    `<tr><td><b>Total</b></td><td class="n"><b>${money(tot)}</b></td><td></td><td class="note">simulated date ${p.sim_date}</td></tr>`;
+  $('#clouds').innerHTML='<tr><th>Cloud</th><th>On-ramps</th><th>Routes</th><th>Used</th><th></th></tr>'+p.clouds.map(c=>`<tr><td>${esc(c.name)}</td><td class="n">${c.onramps}</td><td class="n">${c.route_count}</td><td class="n">${(c.used_mbps/1000).toFixed(0)} / ${(c.capacity_mbps/1000).toFixed(0)} G</td><td>${bar(c.used_mbps/c.capacity_mbps)}</td></tr>`).join('')+
+    `<tr><td colspan="5" class="note">${p.cloud_connections} connections · routers: ${p.cloud_routers.map(r=>r.n+' '+r.package).join(', ')}</td></tr>`;
+  $('#edge').innerHTML='<tr><th>Metro</th><th>Devices</th><th>vCPU</th><th></th></tr>'+p.edge.map(e=>`<tr><td>${e.metro}</td><td class="n">${e.devices}</td><td class="n">${e.vcpu_used}/${e.vcpu_total}</td><td>${bar(e.vcpu_used/e.vcpu_total)}</td></tr>`).join('');
+  $('#ix').innerHTML='<tr><th>Metro</th><th>Members</th><th>Port capacity</th></tr>'+p.ix.map(x=>`<tr><td>${x.metro}</td><td class="n">${x.members}</td><td class="n">${(x.capacity_g/1000).toFixed(1)} Tbps</td></tr>`).join('');
+  $('#ai').innerHTML='<tr><th>Hall</th><th>Cabinets</th><th>kW contracted</th><th></th></tr>'+p.ai_halls.map(h=>`<tr><td>${h.id}</td><td class="n">${h.cabinets_sold}/${h.cabinets_total}</td><td class="n">${Math.round(h.contracted_kw).toLocaleString()}</td><td>${bar(h.cabinets_sold/h.cabinets_total)}</td></tr>`).join('');
+  const r=a.retention_90d;
+  $('#ret').textContent=`Last 90 simulated days: ${r.renewed} renewed · ${r.downsized} downsized · ${r.churned} churned · net retention ${r.net_retention==null?'–':pct(r.net_retention)} · remote-hands SLA (30 days) ${p.remote_hands_30d.sla_pct??'–'}%`;
+  $('#risk').innerHTML='<tr><th>Customer</th><th>Ends</th><th>Renew odds</th><th>MRR</th><th>X-conn</th><th>SLA misses</th></tr>'+(a.at_risk.map(x=>`<tr><td>${esc(x.name)}</td><td class="note">${x.end_date}</td><td class="n" style="color:${x.p_renew<.85?'var(--amber)':'inherit'}">${pct(x.p_renew)}</td><td class="n">${money(x.mrr)}</td><td class="n">${x.cross_connects}</td><td class="n">${x.sla_misses_90d}</td></tr>`).join('')||'<tr><td class="note">none</td></tr>');
+  $('#events').innerHTML='<tr><th>Date</th><th>Customer</th><th>Event</th><th>MRR before → after</th></tr>'+(a.recent_events.map(e=>`<tr><td class="note">${e.sim_date}</td><td>${esc(e.name)}</td><td><span class="st ${e.event==='renewed'?'done':e.event==='churned'?'failed':'running'}">${e.event}</span></td><td class="n">${money(e.mrr_before)} → ${money(e.mrr_after)}</td></tr>`).join('')||'<tr><td class="note">None yet: run the operating cycle to move the calendar.</td></tr>');
+}
+function load(t){({overview,world:worldTab,business:businessTab,decisions:decisionsTab,reports,schedules:schedTab})[t]().catch(e=>toast(e.message))}
 overview().catch(e=>toast(e.message));setInterval(()=>{if($('#overview').classList.contains('on'))overview().catch(()=>{})},20000);
 </script>
 </body>

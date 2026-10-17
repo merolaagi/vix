@@ -55,12 +55,17 @@ def seeded() -> bool:
 def seed(force: bool = False):
     db.init()
     if seeded() and not force:
+        from . import products
+        products.upgrade(SEED)
         return
     rnd = random.Random(SEED)
     with db.conn() as c:
         for t in ("metros", "sites", "halls", "tenants", "placements", "ports", "cross_connects",
-                  "virtual_circuits", "metal_inventory", "metal_servers", "orders", "telemetry"):
+                  "virtual_circuits", "metal_inventory", "metal_servers", "orders", "telemetry",
+                  "clouds", "cloud_onramps", "cloud_routers", "cloud_connections", "edge_pool", "edge_devices",
+                  "ix_ports", "tickets", "contracts", "contract_events"):
             c.execute(f"delete from {t}")
+        c.execute("delete from settings where key in ('world_version','sim_date')")
         for m in METROS:
             c.execute("insert into metros values(?,?,?,?,?,?,?,?,?,?)", m)
         halls = []
@@ -68,7 +73,7 @@ def seed(force: bool = False):
             n_sites = 3 if code == "ASH" else 2
             for s in range(1, n_sites + 1):
                 sid = f"{code}{s}"
-                c.execute("insert into sites values(?,?,?,?,?)",
+                c.execute("insert into sites(id,metro,name,opened,tier) values(?,?,?,?,?)",
                           (sid, code, f"{code}-{s} campus", rnd.randint(2009, 2023), "Tier III"))
                 for h in range(1, rnd.randint(2, 4) + 1):
                     cab = rnd.choice([180, 220, 260, 320])
@@ -167,6 +172,8 @@ def seed(force: bool = False):
                 c.execute("update metal_inventory set allocated=? where metro=? and plan=?", (used, code, plan))
     db.set_setting("world_seed", SEED)
     db.set_setting("rs_filtering", False)
+    from . import products
+    products.upgrade(SEED)
 
 
 # ---------- geography ----------
@@ -264,43 +271,19 @@ def tenant(tid):
     t["ports"] = db.rows("select * from ports where tenant=?", (tid,))
     t["metal"] = db.rows("select metro, plan, count(*) n from metal_servers where tenant=? group by metro, plan", (tid,))
     t["mrr"] = round(tenant_mrr(tid), 2)
+    from . import products
+    t.update(products.tenant_detail(tid))
     return t
 
 
 def tenant_mrr(tid):
-    p = db.one("select coalesce(sum(cabinets),0) cab, coalesce(sum(kw),0) kw from placements where tenant=?", (tid,))
-    mrr = p["cab"] * PRICES["cabinet_month"] + p["kw"] * PRICES["kw_month"]
-    for r in db.rows("select speed_g from ports where tenant=?", (tid,)):
-        mrr += PRICES["port_month"].get(r["speed_g"], 800)
-    mrr += (db.scalar("select count(*) from cross_connects x join ports p on p.id=x.a_port where p.tenant=?",
-                      (tid,)) or 0) * PRICES["cross_connect_month"]
-    mrr += (db.scalar("select coalesce(sum(mbps),0) from virtual_circuits v join ports p on p.id=v.a_port"
-                      " where p.tenant=?", (tid,)) or 0) * PRICES["vc_per_mbps_month"]
-    for r in db.rows("select plan from metal_servers where tenant=?", (tid,)):
-        mrr += PRICES["metal_month"][r["plan"]]
-    return mrr
+    from . import products
+    return products.tenant_mrr(tid)
 
 
 def revenue_breakdown():
-    cab = db.scalar("select coalesce(sum(cabinets),0) from placements")
-    kw = db.scalar("select coalesce(sum(kw),0) from placements")
-    ports = db.rows("select speed_g, count(*) n from ports group by speed_g")
-    xc = db.scalar("select count(*) from cross_connects")
-    vc_mbps = db.scalar("select coalesce(sum(mbps),0) from virtual_circuits")
-    metal = db.rows("select plan, count(*) n from metal_servers group by plan")
-    seeded_metal = db.rows("select plan, sum(allocated) n from metal_inventory group by plan")
-    lines = {
-        "colocation_space": cab * PRICES["cabinet_month"],
-        "colocation_power": kw * PRICES["kw_month"],
-        "ports": sum(PRICES["port_month"].get(p["speed_g"], 800) * p["n"] for p in ports),
-        "cross_connects": xc * PRICES["cross_connect_month"],
-        "fabric_virtual_circuits": vc_mbps * PRICES["vc_per_mbps_month"],
-        "metal": sum(PRICES["metal_month"][m["plan"]] * m["n"] for m in seeded_metal),
-    }
-    del metal
-    lines = {k: round(v, 2) for k, v in lines.items()}
-    lines["total"] = round(sum(lines.values()), 2)
-    return lines
+    from . import products
+    return products.revenue_breakdown()
 
 
 # ---------- orders ----------
@@ -314,9 +297,14 @@ ORDER_KINDS = {
 }
 
 
+def order_kinds():
+    from . import products
+    return {**ORDER_KINDS, **products.ORDER_KINDS}
+
+
 def place_order(tenant_id: int, kind: str, params: dict) -> dict:
-    if kind not in ORDER_KINDS:
-        raise ValueError(f"unknown order kind {kind}; one of {list(ORDER_KINDS)}")
+    if kind not in order_kinds():
+        raise ValueError(f"unknown order kind {kind}; one of {list(order_kinds())}")
     if not db.one("select id from tenants where id=?", (tenant_id,)):
         raise ValueError(f"no tenant {tenant_id}")
     oid = db.execute("insert into orders(ts,tenant,kind,params,status,note) values(?,?,?,?,?,?)",
@@ -335,8 +323,11 @@ def new_tenant(rnd: random.Random, kind=None, home=None):
         nm = f"{rnd.choice(_PREFIX)} {rnd.choice(_SUFFIX[kind])} {rnd.randint(2, 99)}"
     asn = (db.scalar("select max(asn) from tenants") or 64600) + rnd.randint(1, 40)
     pfx = {"carrier": 40, "cloud": 25, "content": 12, "enterprise": 2, "financial": 3}[kind]
-    return db.execute("insert into tenants(name,kind,asn,home_metro,prefixes,since_ts) values(?,?,?,?,?,?)",
-                      (nm, kind, asn, home, max(1, int(pfx * rnd.uniform(0.5, 1.6))), db.now()))
+    tid = db.execute("insert into tenants(name,kind,asn,home_metro,prefixes,since_ts) values(?,?,?,?,?,?)",
+                     (nm, kind, asn, home, max(1, int(pfx * rnd.uniform(0.5, 1.6))), db.now()))
+    from . import products
+    products.new_contract(tid)
+    return tid
 
 
 def _ensure_port(tid, site, speed=10):
@@ -358,14 +349,17 @@ def _site_in_metro(metro_code, tid=None):
 
 def fulfill(order: dict, headroom: float = 0.92) -> tuple[str, str]:
     """Try to deliver one order against the simulated inventory. Returns (status, note)."""
+    from . import products
     p = json.loads(order["params"] or "{}")
     tid, kind = order["tenant"], order["kind"]
+    if kind in products.HANDLERS:
+        return products.HANDLERS[kind](tid, p)
     if kind == "cabinets":
         m, n = p.get("metro"), int(p.get("cabinets", 1))
         kwpc = float(p.get("kw_per_cabinet", 5.0))
         need_kw = n * kwpc
-        cands = [h for h in halls(m)
-                 if h["cabinets_total"] - h["cabinets_sold"] >= n
+        cands = [h for h in halls(m) if h.get("cooling_type", "air") != "liquid"
+                 and h["cabinets_total"] - h["cabinets_sold"] >= n
                  and h["utility_kw"] * headroom - h["contracted_kw"] >= need_kw]
         if not cands:
             return "waitlisted", f"no hall in {m} has {n} cabinets and {need_kw:.0f} kW free under the {headroom:.0%} power cap"
@@ -441,19 +435,26 @@ def process_orders(kinds: list[str], include_waitlist: bool = True) -> list[dict
     return out
 
 
-def add_hall(site_id: str, cabinets: int = 260) -> dict:
+def add_hall(site_id: str, cabinets: int = 260, liquid: bool = False) -> dict:
+    """Build a hall. Liquid halls are AI halls: high density, coolant distribution units
+    (stored in the crah_* columns) instead of air handlers."""
+    from . import products
     s = db.one("select * from sites where id=?", (site_id,))
     if not s:
         raise ValueError(f"no site {site_id}")
     n = (db.scalar("select count(*) from halls where site=?", (site_id,)) or 0) + 1
-    hid = f"{site_id}-H{n}"
+    hid = f"{site_id}-{'AI' if liquid else 'H'}{n}"
     while db.one("select id from halls where id=?", (hid,)):
         n += 1
-        hid = f"{site_id}-H{n}"
-    util = cabinets * KW_PER_CAB_DESIGN
+        hid = f"{site_id}-{'AI' if liquid else 'H'}{n}"
+    density = products.LIQUID_CAB_KW if liquid else KW_PER_CAB_DESIGN
+    unit_kw = products.CDU_KW if liquid else CRAH_KW
+    util = cabinets * density
     db.execute("insert into halls(id,site,name,cabinets_total,cabinets_sold,utility_kw,contracted_kw,it_load_kw,"
-               "crah_units,crah_kw_each,crah_down,ups_minutes,generators,build_capex_usd,built_ts)"
-               " values(?,?,?,?,0,?,0,0,?,?,0,10,?,?,?)",
-               (hid, site_id, f"Hall {n}", cabinets, util, math.ceil(util / CRAH_KW) + 1, CRAH_KW,
-                max(2, math.ceil(util / 1500) * 2), util * CAPEX_PER_KW, db.now()))
-    return {"hall": hid, "cabinets": cabinets, "utility_kw": util, "capex_usd": util * CAPEX_PER_KW}
+               "crah_units,crah_kw_each,crah_down,ups_minutes,generators,build_capex_usd,built_ts,cooling_type,kw_per_cab_design)"
+               " values(?,?,?,?,0,?,0,0,?,?,0,10,?,?,?,?,?)",
+               (hid, site_id, f"{'AI hall' if liquid else 'Hall'} {n}", cabinets, util, math.ceil(util / unit_kw) + 1,
+                unit_kw, max(2, math.ceil(util * 1.3 / 1500) * 2), util * CAPEX_PER_KW * (1.25 if liquid else 1.0),
+                db.now(), "liquid" if liquid else "air", density))
+    return {"hall": hid, "cabinets": cabinets, "utility_kw": util, "cooling": "liquid" if liquid else "air",
+            "capex_usd": util * CAPEX_PER_KW * (1.25 if liquid else 1.0)}

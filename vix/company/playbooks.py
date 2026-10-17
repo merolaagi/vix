@@ -4,11 +4,12 @@ up what they did. Reasoning beyond the rules happens when Claude reads the
 reports through MCP and the founder approves decisions."""
 from __future__ import annotations
 
+import datetime as dt
 import json
 import random
 import time
 
-from .. import db, netsim, routerlab, thermal, world
+from .. import db, netsim, products, routerlab, thermal, world
 from . import charter as charter_mod
 from .engine import decision_add, decisions, kpis, playbook
 
@@ -39,15 +40,18 @@ def usd(v):
 
 @playbook("sales_demand_cycle", "Demand cycle", "sales",
           "Generate a day's worth of synthetic customer demand (existing tenants and new logos) as orders.",
-          {"days": {"type": "int", "default": 1}, "orders_per_day": {"type": "int", "default": 9},
-           "new_logo_rate": {"type": "float", "default": 0.15}})
+          {"days": {"type": "int", "default": 1}, "orders_per_day": {"type": "int", "default": 5},
+           "new_logo_rate": {"type": "float", "default": 0.06}})
 def sales_demand_cycle(ctx):
     rnd = random.Random(int(time.time()))
     days = ctx.p("days", 1, int)
-    rate = ctx.p("orders_per_day", 9, int)
-    new_rate = ctx.p("new_logo_rate", 0.15, float)
+    rate = ctx.p("orders_per_day", 5, int)
+    new_rate = ctx.p("new_logo_rate", 0.06, float)
     metros = [m[0] for m in world.METROS]
     sites = [s["id"] for s in db.rows("select id from sites")]
+    ai_metros = sorted({h["metro"] for h in world.halls() if h.get("cooling_type") == "liquid"}) or metros
+    kinds = {"cabinets": .14, "ai_cabinets": .025, "port": .10, "cross_connect": .26, "vc": .12,
+             "cloud_connection": .12, "cloud_router": .03, "edge_device": .06, "ix_port": .04, "metal": .07}
     placed, new_tenants = [], []
     for _ in range(days):
         n = max(0, int(rnd.gauss(rate, rate ** 0.5)))
@@ -56,12 +60,13 @@ def sales_demand_cycle(ctx):
                 tid = world.new_tenant(rnd)
                 new_tenants.append(tid)
             else:
-                tid = db.scalar("select id from tenants order by random() limit 1")
+                tid = db.scalar("select t.id from tenants t join contracts c on c.tenant=t.id"
+                                " where c.status='active' order by random() limit 1")
             t = db.one("select * from tenants where id=?", (tid,))
-            kind = rnd.choices(["cabinets", "port", "cross_connect", "vc", "metal"], [0.2, 0.15, 0.35, 0.2, 0.1])[0]
+            kind = rnd.choices(list(kinds), list(kinds.values()))[0]
             home = t["home_metro"] if rnd.random() < 0.6 else rnd.choice(metros)
             if kind == "cabinets":
-                params = {"metro": home, "cabinets": rnd.choice([2, 4, 6, 10, 20, 40]),
+                params = {"metro": home, "cabinets": rnd.choice([1, 2, 2, 4, 6, 10, 20]),
                           "kw_per_cabinet": rnd.choice([4, 5, 6, 8, 12])}
             elif kind == "port":
                 params = {"site": rnd.choice([s for s in sites if s.startswith(home)] or sites),
@@ -72,6 +77,20 @@ def sales_demand_cycle(ctx):
             elif kind == "vc":
                 z = rnd.choice([m for m in metros if m != home])
                 params = {"a_metro": home, "z_metro": z, "mbps": rnd.choice([50, 100, 200, 500, 1000, 5000])}
+            elif kind == "ai_cabinets":
+                params = {"metro": home if home in ai_metros else rnd.choice(ai_metros),
+                          "cabinets": rnd.choice([1, 2, 4, 4, 8]), "kw_per_cabinet": rnd.choice([30, 40, 60, 80])}
+            elif kind == "cloud_connection":
+                on = (db.one("select * from cloud_onramps where metro=? order by random() limit 1", (home,))
+                      or db.one("select * from cloud_onramps order by random() limit 1"))
+                params = {"metro": on["metro"], "cloud": on["cloud"], "mbps": rnd.choice([50, 100, 200, 500, 1000, 5000, 10000])}
+            elif kind == "cloud_router":
+                params = {"metro": home, "package": rnd.choices(list(products.ROUTER_PACKAGES), [0.2, 0.5, 0.25, 0.05])[0]}
+            elif kind == "edge_device":
+                params = {"metro": home, "role": rnd.choice(products.EDGE_ROLES),
+                          "size": rnd.choice(["small", "medium", "medium", "large", "xlarge"]), "ha": rnd.random() < 0.4}
+            elif kind == "ix_port":
+                params = {"metro": home, "speed_g": rnd.choice([10, 100, 100, 400] if t["kind"] != "enterprise" else [1, 10])}
             else:
                 params = {"metro": home, "plan": rnd.choices(list(world.METAL_PLANS), [0.55, 0.35, 0.1])[0],
                           "count": rnd.choice([1, 2, 4, 8])}
@@ -106,15 +125,31 @@ def _fulfil(ctx, kinds, label):
 
 
 @playbook("ix_fulfill_orders", "Provision interconnection", "ix",
-          "Provision pending ports, cross-connects and fabric virtual circuits; retry the waitlist.")
+          "Provision pending ports, cross-connects, fabric virtual circuits, cloud connections and "
+          "exchange ports; retry the waitlist.")
 def ix_fulfill_orders(ctx):
-    return _fulfil(ctx, ["port", "cross_connect", "vc"], "interconnection")
+    return _fulfil(ctx, ["port", "cross_connect", "vc", "cloud_connection", "ix_port"], "interconnection")
+
+
+@playbook("digital_fulfill_orders", "Provision digital services", "digital",
+          "Provision cloud routers and Network Edge virtual devices; report pool and router headroom.")
+def digital_fulfill_orders(ctx):
+    s, md = _fulfil(ctx, ["cloud_router", "edge_device"], "digital-services")
+    pools = db.rows("select metro, vcpu_total, vcpu_used, round(1.0*vcpu_used/vcpu_total,3) util from edge_pool order by metro")
+    routers = []
+    for r in db.rows("select id, tenant, metro, package from cloud_routers"):
+        used, limit = products.router_routes(r["id"])
+        if used > 0.8 * limit:
+            routers.append({**r, "routes": used, "limit": limit})
+    return s, md + "\n## Edge compute pools\n\n" + table(pools, ["metro", "vcpu_total", "vcpu_used", "util"]) + \
+        "\n## Cloud routers above 80% of route limit\n\n" + table(routers, ["id", "tenant", "metro", "package", "routes", "limit"])
 
 
 @playbook("ops_fulfill_space", "Place colocation", "ops",
-          "Place pending cabinet orders in the least power-loaded hall that fits, under the power cap.")
+          "Place pending cabinet orders (air halls) and AI cabinet orders (liquid-cooled halls) in the "
+          "least power-loaded hall that fits, under the power cap.")
 def ops_fulfill_space(ctx):
-    return _fulfil(ctx, ["cabinets"], "colocation")
+    return _fulfil(ctx, ["cabinets", "ai_cabinets"], "colocation")
 
 
 @playbook("metal_fulfill_orders", "Provision bare metal", "metal",
@@ -123,6 +158,57 @@ def metal_fulfill_orders(ctx):
     s, md = _fulfil(ctx, ["metal"], "bare-metal")
     inv = db.rows("select metro, plan, total, allocated, total-allocated free from metal_inventory order by metro, plan")
     return s, md + "\n## Inventory\n\n" + table(inv, ["metro", "plan", "total", "allocated", "free"])
+
+
+# ---------------------------------------------------------------- Customer ops & accounts
+
+@playbook("cx_ticket_desk", "Remote-hands desk", "cx",
+          "Run one simulated day of remote-hands tickets at every site (smart hands, cabling, installs, "
+          "shipments, access) against SLAs; bill the work; ask for technicians where SLAs slip.",
+          {"load": {"type": "float", "default": 1.0}})
+def cx_ticket_desk(ctx):
+    day = products.today()
+    rnd = random.Random(f"cx-{day}-{time.time()}")
+    r = products.simulate_tickets(rnd, day, ctx.p("load", 1.0, float))
+    since = (products.today_d() - dt.timedelta(days=7)).isoformat()
+    week = {w["site"]: w for w in db.rows("select site, count(*) n, sum(met) met, sum(billed_usd) usd from tickets"
+                                         " where sim_date>? group by site", (since,))}
+    rows, filed = [], []
+    for s in r["sites"]:
+        w = week.get(s["site"], {"n": 0, "met": 0, "usd": 0})
+        pct7 = round(100 * w["met"] / w["n"], 1) if w["n"] else 100.0
+        rows.append({**s, "sla_7d": pct7, "billed_7d": round(w["usd"] or 0)})
+        if w["n"] >= 30 and pct7 < 92:
+            did = decision_add(ctx.agent, "hire_techs", f"Add a technician at {s['site']}",
+                               {"site": s["site"], "add": 1, "reason": f"7-day SLA {pct7}% on {w['n']} tickets with {s['techs']} techs"})
+            filed.append(did)
+    ctx.log(f"{day}: {r['tickets']} tickets, SLA {r['sla_pct']}%")
+    md = (f"Simulated day **{day}**: **{r['tickets']} tickets**, SLA met **{r['sla_pct']}%**. "
+          f"{len(filed)} staffing decision(s) filed.\n\n" +
+          table(sorted(rows, key=lambda x: x["sla_7d"]), ["site", "techs", "tickets", "sla_pct", "util", "sla_7d", "billed_7d"]) +
+          "\n_SLAs: access 30 min, shipment 2 h, smart hands 4 h (urgent 1 h), cabling 24 h, install 48 h. "
+          "Smart hands and cabling bill per 30 minutes, installs flat._\n")
+    return {"day": day, "tickets": r["tickets"], "sla_pct": r["sla_pct"], "decisions": filed}, md
+
+
+@playbook("accounts_renewals", "Renewals & churn", "accounts",
+          "Process contracts that end today: renew with the price escalator, downsize, or churn. "
+          "Renewal odds rise with interconnection density and cloud connections and fall with SLA misses.")
+def accounts_renewals(ctx):
+    rnd = random.Random(f"acct-{products.today()}-{time.time()}")
+    events = products.run_renewals(rnd)
+    risk = products.at_risk(90, 10)
+    ret = products.retention(90)
+    ctx.log(f"{len(events)} contract events, net retention 90d {ret['net_retention']}")
+    md = (f"Simulated day **{products.today()}**: {len(events)} contract(s) reached their end date.\n\n"
+          "## Today\n\n" + table(events, ["name", "kind", "event", "p_renew", "mrr_before", "mrr_after", "cross_connects",
+                                          "sla_misses_90d", "note"]) +
+          "\n## Last 90 days\n\n" + table([ret], ["renewed", "downsized", "churned", "mrr_up_for_renewal", "mrr_retained", "net_retention"]) +
+          "\n## Most at risk in the next 90 days\n\n" + table(risk, ["name", "end_date", "p_renew", "mrr", "cross_connects",
+                                                                   "cloud_connections", "sla_misses_90d"]))
+    return {"events": len(events), "by_event": {e: sum(1 for x in events if x["event"] == e) for e in
+                                                ("renewed", "downsized", "churned")},
+            "net_retention_90d": ret["net_retention"]}, md
 
 
 # ---------------------------------------------------------------- Ops
@@ -152,13 +238,14 @@ def ops_daily_health(ctx):
     metros = {m["code"]: m for m in db.rows("select * from metros")}
     for h in world.halls():
         d = thermal.day_profile(h, metros[h["metro"]])
-        row = {"hall": h["id"], "it_kw": h["it_load_kw"], "pue": d["pue"], "inlet_c": d["inlet_c"],
+        row = {"hall": h["id"], "cooling": h.get("cooling_type", "air"), "it_kw": h["it_load_kw"], "pue": d["pue"], "inlet_c": d["inlet_c"],
                "power_util": h["power_util"], "cooling_headroom_kw": d["cooling_headroom_kw"],
                "crah": f"{h['crah_units'] - h['crah_down']}/{h['crah_units']}"}
         rows.append(row)
         why = []
-        if d["inlet_c"] > thermal.RECOMMENDED_MAX_C:
-            why.append(f"inlet {d['inlet_c']} C above recommended")
+        lim = thermal.limits(h)
+        if d["inlet_c"] > lim["recommended"]:
+            why.append(f"{lim['measure']} {d['inlet_c']} C above recommended")
         if d["cooling_headroom_kw"] < h["crah_kw_each"]:
             why.append("lost N+1 cooling redundancy")
         if h["power_util"] > targets["max_hall_power_util"]:
@@ -173,7 +260,7 @@ def ops_daily_health(ctx):
     md = (f"Simulated 24 h for **{len(rows)} halls**. Fleet IT load **{it / 1000:.2f} MW**, load-weighted PUE "
           f"**{pue}**. {len(flags)} halls flagged.\n\n## Flags\n\n" + table(flags, ["hall", "issues"]) +
           "\n## Equipment events\n\n" + table(events, ["hall", "event"]) +
-          "\n## All halls\n\n" + table(rows, ["hall", "it_kw", "pue", "inlet_c", "power_util", "cooling_headroom_kw", "crah"]) +
+          "\n## All halls\n\n" + table(rows, ["hall", "cooling", "it_kw", "pue", "inlet_c", "power_util", "cooling_headroom_kw", "crah"]) +
           "\n_Model: hourly outside-air sine per metro; free cooling below 18 C, chiller COP falls 0.15 per C above; "
           "UPS loss 4%, fans 3%, misc 1.5%._\n")
     return {"halls": len(rows), "flagged": len(flags), "fleet_pue": pue, "events": len(events),
@@ -318,8 +405,9 @@ def fin_monthly_close(ctx):
         pm["power_cost"] += c
         pm["cabinets_sold"] += h["cabinets_sold"]
         pm["cabinets_total"] += h["cabinets_total"]
+    lb = products.lines_by_tenant()
     for pm in per_metro.values():
-        pm["revenue"] = sum(world.tenant_mrr(r["tenant"]) * r["share"] for r in db.rows(
+        pm["revenue"] = sum(sum(lb.get(r["tenant"], {}).values()) * r["share"] for r in db.rows(
             "select p.tenant, cast(sum(p.cabinets) as real) / (select sum(cabinets) from placements where tenant=p.tenant) share"
             " from placements p join halls h on h.id=p.hall join sites s on s.id=h.site where s.metro=? group by p.tenant",
             (pm["metro"],)))
@@ -327,10 +415,12 @@ def fin_monthly_close(ctx):
         pm["revenue"], pm["power_cost"] = round(pm["revenue"]), round(pm["power_cost"])
     sites = db.scalar("select count(*) from sites")
     opex = sites * world.SITE_OPEX_MONTH
+    techs = db.scalar("select coalesce(sum(techs),0) from sites") or 0
+    labour = techs * products.TECH_COST_MONTH
     dep = capex / 240
-    ebitda = rev["total"] - power_cost - opex
+    ebitda = rev["total"] - power_cost - opex - labour
     margin = round(ebitda / rev["total"], 3) if rev["total"] else None
-    snap = {"mrr": rev["total"], "power_cost": round(power_cost), "opex": opex, "ebitda": round(ebitda),
+    snap = {"mrr": rev["total"], "power_cost": round(power_cost), "opex": opex, "tech_labour": round(labour), "ebitda": round(ebitda),
             "ebitda_margin": margin, "depreciation": round(dep), "ebit": round(ebitda - dep), "ts": time.time()}
     db.set_setting("fin_last", snap)
     ctx.log(f"MRR {usd(rev['total'])}, EBITDA margin {margin:.1%}")
@@ -338,6 +428,7 @@ def fin_monthly_close(ctx):
         {"line": "Revenue", "usd": usd(rev["total"])},
         {"line": "Power", "usd": "-" + usd(power_cost)},
         {"line": "Site opex", "usd": "-" + usd(opex)},
+        {"line": f"Remote-hands technicians ({techs} posts, 24x7)", "usd": "-" + usd(labour)},
         {"line": "**EBITDA**", "usd": f"**{usd(ebitda)}** ({margin:.1%})"},
         {"line": "Depreciation (20-yr straight line)", "usd": "-" + usd(dep)},
         {"line": "EBIT", "usd": usd(ebitda - dep)}], ["line", "usd"]) +
@@ -372,6 +463,36 @@ def rnd_router_study(ctx):
     return {"design": d}, md
 
 
+@playbook("rnd_cooling_study", "AI cooling study", "rnd",
+          "Compare air and direct-to-chip liquid cooling for 1 MW of AI load in every metro: PUE, "
+          "energy cost, carbon; rank where the next AI hall should go.",
+          {"carbon_usd_per_t": {"type": "float", "default": 100}})
+def rnd_cooling_study(ctx):
+    cprice = ctx.p("carbon_usd_per_t", 100, float)
+    rows = []
+    for m in db.rows("select * from metros"):
+        res = {}
+        for kind in ("air", "liquid"):
+            h = {"id": f"model-{kind}", "it_load_kw": 1000.0, "cooling_type": kind}
+            fac = sum(thermal.hall_power(h, thermal.ambient_c(m, hr))["facility_kw"] for hr in range(24)) / 24
+            res[kind] = fac / 1000
+        mwh = res["liquid"] * 8760
+        cost = mwh * 1000 * m["power_usd_kwh"]
+        tco2 = mwh * m["grid_gco2_kwh"] / 1000 * (1 - m["renewable_pct"] / 100)
+        rows.append({"metro": m["code"], "pue_air": round(res["air"], 3), "pue_liquid": round(res["liquid"], 3),
+                     "saving_pct": round(100 * (res["air"] - res["liquid"]) / res["air"], 1),
+                     "energy_usd_yr": round(cost), "tco2_yr": round(tco2), "score_usd": round(cost + tco2 * cprice)})
+    rows.sort(key=lambda r: r["score_usd"])
+    top = [r["metro"] for r in rows[:3]]
+    ctx.log(f"best metros for AI halls: {top}")
+    md = (f"1 MW of IT for a year, air versus direct-to-chip liquid (85% of heat to warm water, dry coolers up "
+          f"to 30 C outside). Score = energy cost + carbon at ${cprice:.0f}/t (market-based).\n\n" +
+          table(rows, ["metro", "pue_air", "pue_liquid", "saving_pct", "energy_usd_yr", "tco2_yr", "score_usd"]) +
+          f"\n**Recommendation:** next AI halls in {', '.join(top)}. Air cooling cannot actually hold "
+          f"40-100 kW racks; the air column shows what the same load would cost if it could.\n")
+    return {"best_metros": top, "rows": rows}, md
+
+
 @playbook("rnd_research_cycle", "Research cycle", "rnd",
           "Chief Scientist: delegate a 2x2 route-leak study (route-server x carrier filtering) to Network "
           "Engineering, run the switch buffer study, write a research memo and propose a network standard "
@@ -393,6 +514,8 @@ def rnd_research_cycle(ctx):
         a = ((c["summary"] or {}).get("after") or {})
         hj.append({"filtering": "both" if rs else "none", "hijacked_routes": a.get("hijacked_routes_in_use")})
     sw = ctx.child("rnd_router_study", {})
+    cool = ctx.child("rnd_cooling_study", {})
+    best = (cool["summary"] or {}).get("best_metros", [])
     design = (sw["summary"] or {}).get("design", {})
     base = grid[0]["leaked_routes"] or 0
     both = grid[3]["leaked_routes"] or 0
@@ -405,37 +528,79 @@ def rnd_research_cycle(ctx):
                                  "evidence": f"leaked routes {base} -> {both} at {metro}"})
     ctx.log(f"leak grid done; proposal {proposal}")
     md = ("## Route leaks: which filtering stops them?\n\n" + table(grid, ["rs_filtering", "edge_filtering", "leaked_routes", "updates", "report"]) +
-          f"\nRoute-server filtering alone cuts leaked routes from {base} to {grid[2]['leaked_routes']}; the rest "
-          f"reach networks through the leaker's own transit providers, which only carrier edge filtering stops "
-          f"(both on: {both}).\n\n## Hijacks\n\n" + table(hj, ["filtering", "hijacked_routes"]) +
+          f"\nLeaked routes in use: none {base}, route server only {grid[2]['leaked_routes']}, carrier edges only "
+          f"{grid[1]['leaked_routes']}, both {both}. Route-server filtering only covers routes that travel over the "
+          f"exchange; leaks that reach networks through the leaker's own transit providers need carrier edge filtering.\n"
+          "\n## Hijacks\n\n" + table(hj, ["filtering", "hijacked_routes"]) +
           f"\n## Switch design\n\nBuffer rule **{design.get('buffer_rule')}**, {design.get('buffer_total_mb')} MB total, "
-          f"{design.get('memory')}, about {design.get('est_power_w')} W. Details in {sw['report']}.\n\n"
-          f"## Standard\n\nCurrent: {std}. " +
+          f"{design.get('memory')}, about {design.get('est_power_w')} W. Details in {sw['report']}.\n"
+          f"\n## AI cooling\n\nDirect-to-chip liquid is the cheapest and cleanest way to run AI load; best metros "
+          f"for the next AI hall: **{', '.join(best)}**. Details in {cool['report']}.\n"
+          f"\n## Standard\n\nCurrent: {std}. " +
           (f"Filed decision **#{proposal}** to adopt both filters; the founder approves it." if proposal else
            "No change proposed.") + "\n")
-    return {"leak_grid": grid, "hijack": hj, "design": design, "proposal": proposal}, md
+    return {"leak_grid": grid, "hijack": hj, "design": design, "best_ai_metros": best, "proposal": proposal}, md
 
 
 # ---------------------------------------------------------------- Chief Operator
 
-@playbook("exec_operating_cycle", "Daily operating cycle", "exec",
-          "Chief Operator: delegate the day across departments: demand, colocation, interconnection, "
-          "metal, site health, energy. Summarise what happened.")
+@playbook("exec_operating_cycle", "Operating cycle", "exec",
+          "Chief Operator: run simulated day(s) across departments: demand, colocation, interconnection, "
+          "digital services, metal, remote hands, renewals, site health, energy. days>1 fast-forwards the "
+          "calendar (weekly reviews included) and writes one summary report.",
+          {"days": {"type": "int", "default": 1}})
 def exec_operating_cycle(ctx):
-    steps = ["sales_demand_cycle", "ops_fulfill_space", "ix_fulfill_orders", "metal_fulfill_orders",
-             "ops_daily_health", "energy_report"]
-    rows = []
-    for name in steps:
-        c = ctx.child(name)
-        s = c["summary"] or {}
-        brief = ", ".join(f"{k}={v}" for k, v in s.items() if not isinstance(v, (list, dict)))[:160]
-        rows.append({"step": name, "status": c["status"], "result": brief, "report": c["report"]})
+    steps = ["sales_demand_cycle", "ops_fulfill_space", "ix_fulfill_orders", "digital_fulfill_orders",
+             "metal_fulfill_orders", "cx_ticket_desk", "accounts_renewals", "ops_daily_health", "energy_report"]
+    days = max(1, min(365, ctx.p("days", 1, int)))
+    if days == 1:
+        day = products.advance(1)
+        ctx.log(f"simulated day {day}")
+        rows = []
+        for name in steps:
+            c = ctx.child(name)
+            s = c["summary"] or {}
+            brief = ", ".join(f"{k}={v}" for k, v in s.items() if not isinstance(v, (list, dict)))[:160]
+            rows.append({"step": name, "status": c["status"], "result": brief, "report": c["report"]})
+        k = kpis()
+        md = (f"Simulated day **{day}**.\n\n## Delegated steps\n\n" + table(rows, ["step", "status", "result", "report"]) +
+              "\n## KPIs after the cycle\n\n" + table([{"kpi": a, "value": json.dumps(b) if isinstance(b, dict) else b}
+                                                        for a, b in k.items()], ["kpi", "value"]))
+        return {"day": day, "steps": len(rows), "failed": sum(r["status"] != "done" for r in rows),
+                "waitlisted": k["orders_waitlisted"], "mrr_usd": k["mrr_usd"]}, md
+    start_mrr = world.revenue_breakdown()["total"]
+    start = products.today()
+    log = []
+    for d in range(days):
+        day = products.advance(1)
+        out = {name: ctx.inline(name) for name in steps}
+        if (d + 1) % 7 == 0:
+            ctx.inline("exec_weekly_review")
+        row = {"day": day, "orders": out["sales_demand_cycle"]["orders"],
+               "new_logos": out["sales_demand_cycle"]["new_tenants"],
+               "tickets": out["cx_ticket_desk"]["tickets"], "sla_pct": out["cx_ticket_desk"]["sla_pct"],
+               **out["accounts_renewals"]["by_event"], "pue": out["ops_daily_health"]["fleet_pue"]}
+        if (d + 1) % 7 == 0 or d == days - 1:
+            row["mrr"] = round(world.revenue_breakdown()["total"])
+        log.append(row)
+        if d % 10 == 0:
+            ctx.log(f"day {day}")
     k = kpis()
-    md = ("## Delegated steps\n\n" + table(rows, ["step", "status", "result", "report"]) +
-          "\n## KPIs after the cycle\n\n" + table([{"kpi": a, "value": json.dumps(b) if isinstance(b, dict) else b}
-                                                    for a, b in k.items()], ["kpi", "value"]))
-    return {"steps": len(rows), "failed": sum(r["status"] != "done" for r in rows),
-            "waitlisted": k["orders_waitlisted"], "mrr_usd": k["mrr_usd"]}, md
+    end_mrr = world.revenue_breakdown()["total"]
+
+    def tot(key):
+        return sum(r.get(key, 0) or 0 for r in log)
+    weekly = [r for r in log if "mrr" in r]
+    md = (f"Fast-forwarded **{days} days** ({start} to {products.today()}). MRR {usd(start_mrr)} to **{usd(end_mrr)}** "
+          f"({100 * (end_mrr / start_mrr - 1):+.1f}%). {tot('orders')} orders, {tot('new_logos')} new logos, "
+          f"{tot('renewed')} renewals, {tot('downsized')} downsizes, {tot('churned')} churned. "
+          f"{k['open_decisions']} decisions await the founder.\n\n## Week by week\n\n" +
+          table(weekly, ["day", "orders", "new_logos", "tickets", "sla_pct", "renewed", "downsized", "churned", "pue", "mrr"]) +
+          "\n## KPIs now\n\n" + table([{"kpi": a, "value": json.dumps(b) if isinstance(b, dict) else b}
+                                          for a, b in k.items()], ["kpi", "value"]) +
+          "\n_Department steps ran inline (no separate reports) to keep a long fast-forward readable._\n")
+    return {"days": days, "from": start, "to": products.today(), "mrr_start": round(start_mrr), "mrr_end": round(end_mrr),
+            "orders": tot("orders"), "churned": tot("churned"), "open_decisions": k["open_decisions"]}, md
 
 
 @playbook("exec_weekly_review", "Weekly review", "exec",
@@ -452,8 +617,9 @@ def exec_weekly_review(ctx):
     for w in wait:
         p = json.loads(w["params"])
         demand[p["metro"]] = demand.get(p["metro"], 0) + int(p.get("cabinets", 0))
-    for code in sorted({h["metro"] for h in hs}):
-        mine = [h for h in hs if h["metro"] == code]
+    air = [h for h in hs if h.get("cooling_type", "air") != "liquid"]
+    for code in sorted({h["metro"] for h in air}):
+        mine = [h for h in air if h["metro"] == code]
         hot = [h for h in mine if h["power_util"] > targets["max_hall_power_util"]]
         free = sum(h["cabinets_total"] - h["cabinets_sold"] for h in mine)
         if demand.get(code, 0) > 0 or (len(hot) >= max(1, len(mine) // 2)):
@@ -465,6 +631,18 @@ def exec_weekly_review(ctx):
                                           f"{free} cabinets free metro-wide",
                                 "capex_usd": 260 * world.KW_PER_CAB_DESIGN * world.CAPEX_PER_KW})
             filed.append({"decision": did, "kind": "build_hall", "where": site})
+    ai_wait = {}
+    for w in db.rows("select params from orders where status='waitlisted' and kind='ai_cabinets'"):
+        pm = json.loads(w["params"])
+        ai_wait[pm["metro"]] = ai_wait.get(pm["metro"], 0) + int(pm.get("cabinets", 0))
+    for code, n in ai_wait.items():
+        liquid = [h for h in hs if h["metro"] == code and h.get("cooling_type") == "liquid"]
+        site = liquid[0]["site"] if liquid else f"{code}1"
+        did = decision_add(ctx.agent, "build_hall", f"Build a liquid-cooled AI hall at {site}",
+                           {"site": site, "cabinets": products.AI_HALL_CABS, "liquid": True,
+                            "reason": f"{n} AI cabinets waitlisted in {code}",
+                            "capex_usd": products.AI_HALL_CABS * products.LIQUID_CAB_KW * world.CAPEX_PER_KW * 1.25})
+        filed.append({"decision": did, "kind": "build_hall (AI)", "where": site})
     for h in hs:
         if h["crah_down"] >= 2:
             did = decision_add(ctx.agent, "cooling_upgrade", f"Add a CRAH unit to {h['id']}",
@@ -481,6 +659,10 @@ def exec_weekly_review(ctx):
           "\n## Open decisions awaiting the founder\n\n" +
           table([{"id": d["id"], "by": d["agent"], "title": d["title"], "reason": d["detail"].get("reason") or d["detail"].get("evidence")}
                  for d in open_d], ["id", "by", "title", "reason"]) +
-          f"\nFinance detail: {fin['report']}.\n")
+          "\n## Customers\n\n" + table([{**products.retention(90), "sla_30d": products.sla_window(30)["sla_pct"]}],
+                                          ["renewed", "downsized", "churned", "net_retention", "sla_30d"]) +
+          "\nMost at risk: " + (", ".join(f"{r['name']} ({r['p_renew']:.0%}, {usd(r['mrr'])}/mo)"
+                                          for r in products.at_risk(90, 5)) or "none") +
+          f"\n\nFinance detail: {fin['report']}.\n")
     return {"filed": len(filed), "open_decisions": len(open_d), "mrr": fs.get("mrr"),
             "ebitda_margin": fs.get("ebitda_margin")}, md

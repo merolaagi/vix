@@ -16,8 +16,8 @@ from . import charter as charter_mod
 
 DEPARTMENTS = [
     {"id": "exec", "name": "Office of the Chief Operator", "agent": "Atlas", "tier": "super",
-     "mission": "Run the business: drive the daily operating cycle across departments, review KPIs weekly "
-                "and file decisions (new halls, cooling upgrades) for the founder.",
+     "mission": "Run the business: drive the operating cycle across the departments on the simulated "
+                "calendar, review KPIs weekly and file decisions (new air or AI halls, cooling, staffing) for the founder.",
      "kpis": ["decisions filed", "operating cycles"]},
     {"id": "rnd", "name": "Research & Development", "agent": "Euler", "tier": "super",
      "mission": "Chief Scientist: design and test network gear and standards in simulation, delegate studies "
@@ -38,6 +38,15 @@ DEPARTMENTS = [
     {"id": "net", "name": "Network Engineering", "agent": "Pathfinder", "tier": "department",
      "mission": "Run BGP at the exchanges, study failure and attack events, keep the latency map.",
      "kpis": ["studies run", "reachability"]},
+    {"id": "digital", "name": "Digital Services", "agent": "Relay", "tier": "department",
+     "mission": "Run the software-defined products: cloud routers and Network Edge virtual devices.",
+     "kpis": ["cloud routers", "edge devices"]},
+    {"id": "cx", "name": "Customer Operations", "agent": "Concierge", "tier": "department",
+     "mission": "Run the remote-hands desk at every site: tickets, SLAs, billing and staffing.",
+     "kpis": ["SLA attainment", "tickets per day"]},
+    {"id": "accounts", "name": "Account Management", "agent": "Keeper", "tier": "department",
+     "mission": "Renew contracts with escalators, watch accounts at risk, and record downsizing and churn.",
+     "kpis": ["net retention", "accounts at risk"]},
     {"id": "energy", "name": "Energy & Sustainability", "agent": "Steward", "tier": "department",
      "mission": "Report energy use, PUE and carbon per metro.",
      "kpis": ["fleet PUE", "tCO2 per day"]},
@@ -88,6 +97,16 @@ class Ctx:
         if v is None:
             return default
         return cast(v) if cast else v
+
+    def inline(self, name, params=None) -> dict:
+        """Run a department playbook inside this run (no separate run or report).
+        Used when a super agent fast-forwards many simulated days."""
+        pb = PLAYBOOKS[name]
+        sub = Ctx.__new__(Ctx)
+        sub.run_id, sub.pb, sub.params, sub.agent, sub._log = self.run_id, pb, params or {}, DEPT[pb.department]["agent"], []
+        sub.log = lambda msg: None
+        summary, _ = pb.fn(sub)
+        return summary
 
     def child(self, name, params=None) -> dict:
         """Delegate to a department: runs synchronously as a child run and returns it."""
@@ -175,10 +194,16 @@ def reports(limit=50):
 
 # ---------- decisions ----------
 
+DEDUPE_KEY = {"build_hall": "site", "hire_techs": "site", "cooling_upgrade": "hall", "network_standard": None}
+
+
 def decision_add(agent, kind, title, detail):
-    dup = db.one("select id from decisions where status='open' and kind=? and detail=?", (kind, json.dumps(detail)))
-    if dup:
-        return dup["id"]
+    """File a decision for the founder, unless an open one already covers the same thing."""
+    for d in db.rows("select id, detail from decisions where status='open' and kind=?", (kind,)):
+        key = DEDUPE_KEY.get(kind, "__all__")
+        old = json.loads(d["detail"] or "{}")
+        if key is None or (key == "__all__" and old == detail) or (key in old and old.get(key) == detail.get(key)):
+            return d["id"]
     return db.execute("insert into decisions(ts,agent,kind,title,detail,status) values(?,?,?,?,?,'open')",
                       (time.time(), agent, kind, title, json.dumps(detail)))
 
@@ -203,7 +228,10 @@ def decide(did: int, approve: bool, note: str = "") -> dict:
     effect = None
     if approve:
         if d["kind"] == "build_hall":
-            effect = world.add_hall(detail["site"], int(detail.get("cabinets", 260)))
+            effect = world.add_hall(detail["site"], int(detail.get("cabinets", 260)), bool(detail.get("liquid")))
+        elif d["kind"] == "hire_techs":
+            db.execute("update sites set techs=techs+? where id=?", (int(detail.get("add", 1)), detail["site"]))
+            effect = {"site": detail["site"], "techs": db.scalar("select techs from sites where id=?", (detail["site"],))}
         elif d["kind"] == "network_standard":
             for k in ("rs_filtering", "edge_filtering"):
                 if k in detail:
@@ -291,6 +319,7 @@ def scheduler_loop(stop: threading.Event):
 # ---------- overview ----------
 
 def kpis():
+    from .. import products
     hs = world.halls()
     cab_t = sum(h["cabinets_total"] for h in hs)
     cab_s = sum(h["cabinets_sold"] for h in hs)
@@ -316,6 +345,14 @@ def kpis():
         "open_decisions": db.scalar("select count(*) from decisions where status='open'"),
         "runs_7d": db.scalar("select count(*) from runs where started>?", (week,)),
         "failed_7d": db.scalar("select count(*) from runs where started>? and status='failed'", (week,)),
+        "sim_date": products.today(),
+        "ai_it_mw": round(sum(h["it_load_kw"] for h in hs if h.get("cooling_type") == "liquid") / 1000, 2),
+        "cloud_connections": db.scalar("select count(*) from cloud_connections"),
+        "edge_devices": db.scalar("select count(*) from edge_devices"),
+        "ix_members": db.scalar("select count(distinct tenant) from ix_ports"),
+        "remote_hands_sla_30d": products.sla_window(30)["sla_pct"],
+        "net_retention_90d": products.retention(90)["net_retention"],
+        "active_customers": db.scalar("select count(*) from contracts where status='active'"),
         "network_standard": {"rs_filtering": bool(db.setting("rs_filtering", False)),
                              "edge_filtering": bool(db.setting("edge_filtering", False))},
     }

@@ -12,7 +12,7 @@ import time
 
 from mcp.server.mcpserver import MCPServer
 
-from . import __version__, db, netsim, routerlab, thermal, world
+from . import __version__, db, netsim, products, routerlab, thermal, world
 from .company import charter as charter_mod
 from .company import engine
 from .config import MCP_PORT
@@ -21,15 +21,16 @@ mcp = MCPServer(
     name="vix",
     version=__version__,
     instructions=(
-        "vix is a headless, fully simulated digital-infrastructure company (colocation, interconnection, "
-        "bare metal) in 8 metros. Start with company_overview: charter, departments, KPIs, open decisions, "
-        "schedules. Two super agents run it: Atlas (Chief Operator: exec_operating_cycle, exec_weekly_review) "
-        "and Euler (Chief Scientist: rnd_research_cycle). company_run starts a playbook and returns a run id; "
-        "poll company_run_status, then read company_report. Super agents file decisions; only call "
-        "company_decide when the founder explicitly says to approve or reject. The world_* tools read the "
-        "simulated sites, halls, tenants and orders; place_order adds demand. sim_bgp, sim_drill and "
-        "sim_router run the network, facility and switch simulators directly for R&D questions. "
-        "Every number is simulated; nothing is a real facility or customer."
+        "vix is a headless, fully simulated digital-infrastructure company in 8 metros: colocation (air and "
+        "liquid-cooled AI halls), cross-connects, fabric virtual circuits, cloud on-ramps and a cloud router, "
+        "Network Edge virtual devices, internet exchange ports, bare metal, remote hands, and contracts with "
+        "renewals and churn. Start with company_overview. Two super agents run it: Atlas (Chief Operator: "
+        "exec_operating_cycle {days} advances the simulated calendar, exec_weekly_review files decisions) and "
+        "Euler (Chief Scientist: rnd_research_cycle). company_run returns a run id; poll company_run_status, "
+        "then read company_report. Only call company_decide when the founder explicitly says to approve or "
+        "reject. world_* tools read the simulated world; world_products summarises the product lines; "
+        "accounts_at_risk lists renewals coming up. place_order adds demand. sim_bgp, sim_drill and sim_router "
+        "run the simulators directly. Every number is simulated; nothing is a real facility, provider or customer."
     ),
 )
 
@@ -46,10 +47,12 @@ def company_overview() -> dict:
 @mcp.tool()
 def company_run(playbook: str, params: dict | None = None) -> dict:
     """Start a playbook in the background and return its run id. Super agents:
-    exec_operating_cycle (daily: demand -> colocation -> interconnection -> metal -> site health -> energy),
+    exec_operating_cycle {days} (each day: demand -> colocation -> interconnection -> digital services -> metal
+    -> remote hands -> renewals -> site health -> energy; days>1 fast-forwards up to 365 simulated days),
     exec_weekly_review (books + capacity review, files decisions), rnd_research_cycle {metro}.
     Departments: sales_demand_cycle {days, orders_per_day, new_logo_rate}, ops_fulfill_space,
-    ix_fulfill_orders, metal_fulfill_orders, ops_daily_health {fault_rate},
+    ix_fulfill_orders, digital_fulfill_orders, metal_fulfill_orders, cx_ticket_desk {load}, accounts_renewals,
+    ops_daily_health {fault_rate}, rnd_cooling_study {carbon_usd_per_t},
     ops_incident_drill {hall, kind: cooling|utility|fiber, units_lost, repair_min},
     net_bgp_study {metro, event: baseline|withdraw|leak|hijack|fiber_cut, rs_filtering, edge_filtering},
     net_latency_map, energy_report, fin_monthly_close,
@@ -71,7 +74,7 @@ def company_run_status(run_id: int) -> dict:
 @mcp.tool()
 def company_runs(limit: int = 20, department: str | None = None) -> list[dict]:
     """Recent runs, newest first, optionally for one department
-    (exec, rnd, sales, ix, ops, metal, net, energy, finance)."""
+    (exec, rnd, sales, ix, digital, ops, metal, net, cx, accounts, energy, finance)."""
     out = engine.runs(limit, department)
     for r in out:
         r.pop("log", None)
@@ -93,7 +96,7 @@ def company_decisions(status: str | None = "open") -> list[dict]:
 @mcp.tool()
 def company_decide(decision_id: int, approve: bool, note: str = "") -> dict:
     """Approve or reject a decision. Approving applies it to the world (builds the hall,
-    adopts the network standard, adds cooling). Only call this when the founder has
+    adopts the network standard, adds cooling or technicians). Only call this when the founder has
     explicitly said to approve or reject that decision."""
     return engine.decide(decision_id, approve, note)
 
@@ -164,9 +167,42 @@ def world_orders(status: str | None = None, limit: int = 50) -> list[dict]:
 @mcp.tool()
 def place_order(tenant_id: int, kind: str, params: dict) -> dict:
     """Add a customer order (fulfilled by the next department run). kind and params:
-    cabinets {metro, cabinets, kw_per_cabinet}; port {site, speed_g}; cross_connect {site, z_tenant};
-    vc {a_metro, z_metro, mbps}; metal {metro, plan: s1.small|m1.large|g1.gpu, count}."""
+    cabinets {metro, cabinets, kw_per_cabinet}; ai_cabinets {metro, cabinets, kw_per_cabinet} (liquid halls);
+    port {site, speed_g}; cross_connect {site, z_tenant}; vc {a_metro, z_metro, mbps};
+    cloud_connection {metro, cloud: STRATUS|CIRRUS|CUMULUS|ALTUS, mbps};
+    cloud_router {metro, package: lab|standard|advanced|premium};
+    edge_device {metro, role: router|firewall|sdwan, size: small|medium|large|xlarge, ha};
+    ix_port {metro, speed_g: 1|10|100|400}; metal {metro, plan: s1.small|m1.large|g1.gpu, count}."""
     return world.place_order(tenant_id, kind, params)
+
+
+@mcp.tool()
+def world_products() -> dict:
+    """Product lines at a glance: simulated date, revenue by product, cloud on-ramps, cloud routers,
+    Network Edge pools, exchange membership, AI halls, contracts, remote-hands SLA and retention."""
+    return {**products.catalogue_summary(), "revenue_by_product": products.revenue_breakdown()}
+
+
+@mcp.tool()
+def accounts_at_risk(days: int = 90, limit: int = 20) -> dict:
+    """Contracts ending in the next `days` simulated days, lowest renewal odds first, plus the last
+    contract events and 90-day net retention."""
+    return {"at_risk": products.at_risk(days, limit), "retention_90d": products.retention(90),
+            "recent_events": db.rows("select e.*, t.name from contract_events e join tenants t on t.id=e.tenant"
+                                     " order by e.id desc limit 20")}
+
+
+@mcp.tool()
+def remote_hands(days: int = 30) -> dict:
+    """Remote-hands desk over the last `days` simulated days: SLA and billing per site and per ticket kind."""
+    since = (products.today_d() - __import__("datetime").timedelta(days=days)).isoformat()
+    return {"overall": products.sla_window(days),
+            "by_site": db.rows("select t.site, s.techs, count(*) tickets, round(100.0*sum(met)/count(*),1) sla_pct,"
+                               " round(sum(billed_usd)) billed from tickets t join sites s on s.id=t.site where sim_date>?"
+                               " group by t.site order by sla_pct", (since,)),
+            "by_kind": db.rows("select kind, count(*) tickets, round(100.0*sum(met)/count(*),1) sla_pct,"
+                               " round(avg(done_min-opened_min)) avg_minutes from tickets where sim_date>? group by kind",
+                               (since,))}
 
 
 @mcp.tool()
@@ -187,7 +223,8 @@ async def sim_bgp(metro: str = "ASH", event: str = "leak", rs_filtering: bool | 
 
 @mcp.tool()
 def sim_drill(hall: str, kind: str = "cooling", units_lost: int = 2, repair_min: int = 45) -> dict:
-    """Run a facility failure drill directly: kind cooling | utility | fiber."""
+    """Run a facility failure drill directly: kind cooling | utility | fiber. On liquid-cooled AI halls
+    'cooling' trips coolant distribution units and tracks coolant return temperature."""
     h = next((x for x in world.halls() if x["id"] == hall), None)
     if not h:
         return {"error": f"no hall {hall}"}

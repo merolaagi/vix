@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from . import __version__, db, world
+from . import __version__, db, products, world
 from .company import charter as charter_mod
 from .company import engine
 from .config import STATIC_DIR
@@ -159,6 +159,18 @@ def tenant(tid: int):
     if not t:
         raise HTTPException(404, "no such tenant")
     return t
+
+
+@app.get("/api/world/products")
+def world_products():
+    return {**products.catalogue_summary(), "revenue_by_product": products.revenue_breakdown()}
+
+
+@app.get("/api/world/accounts")
+def world_accounts(days: int = 90):
+    return {"at_risk": products.at_risk(days, 20), "retention_90d": products.retention(90),
+            "recent_events": db.rows("select e.*, t.name from contract_events e join tenants t on t.id=e.tenant"
+                                     " order by e.id desc limit 20")}
 
 
 @app.get("/api/world/latency")

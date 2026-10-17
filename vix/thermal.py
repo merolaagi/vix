@@ -14,7 +14,21 @@ RECOMMENDED_MAX_C = 27.0   # ASHRAE recommended upper bound
 UPS_LOSS = 0.04            # fraction of IT load lost in UPS/distribution
 MISC = 0.015               # lighting, security, offices
 FAN_FRACTION = 0.03        # CRAH fan power as fraction of heat moved
+LIQUID_FRACTION = 0.85     # share of heat a direct-to-chip loop captures; the rest goes to air
+PUMP_FRACTION = 0.015      # coolant pumps as fraction of liquid heat moved
 KJ_PER_K_PER_KW = 60.0   # lumped heat capacity per kW of IT: total cooling loss gives about +10 C in 10 min
+
+
+def limits(h: dict) -> dict:
+    """Air halls track cold-aisle inlet temperature. Liquid (AI) halls track coolant return
+    temperature: warm-water loops supply ~32 C, GPUs throttle near 45 C return, and the
+    loop has far less thermal mass than a room of air, so failures move in seconds."""
+    if h.get("cooling_type") == "liquid":
+        return {"setpoint": 32.0, "recommended": 40.0, "allowable": 45.0, "kj_per_k_per_kw": 6.0,
+                "unit": "CDU", "measure": "coolant return", "breach_action": "GPUs throttle; shift jobs, open bypass"}
+    return {"setpoint": SETPOINT_C, "recommended": RECOMMENDED_MAX_C, "allowable": ALLOWABLE_MAX_C,
+            "kj_per_k_per_kw": KJ_PER_K_PER_KW, "unit": "CRAH", "measure": "inlet",
+            "breach_action": "open containment, start load shedding"}
 
 
 def ambient_c(m: dict, hour: float) -> float:
@@ -34,18 +48,26 @@ def hall_power(h: dict, ambient: float) -> dict:
     if it <= 0:
         return {"it_kw": 0, "cooling_kw": 0, "facility_kw": 0, "pue": None}
     c = cop(ambient)
-    cooling = it / c + it * FAN_FRACTION
+    if h.get("cooling_type") == "liquid":
+        # warm water rejects heat through dry coolers up to ~30 C outside, trim chillers above
+        lc = 30.0 if ambient < 30 else 10.0
+        liquid = it * LIQUID_FRACTION
+        air = it - liquid
+        cooling = liquid / lc + liquid * PUMP_FRACTION + air / c + air * FAN_FRACTION
+    else:
+        cooling = it / c + it * FAN_FRACTION
     facility = it + cooling + it * UPS_LOSS + it * MISC
     return {"it_kw": round(it, 1), "cooling_kw": round(cooling, 1), "facility_kw": round(facility, 1),
             "pue": round(facility / it, 3), "cop": round(c, 2)}
 
 
 def steady_inlet(h: dict) -> float:
+    lim = limits(h)
     avail = (h["crah_units"] - h["crah_down"]) * h["crah_kw_each"]
     if avail >= h["it_load_kw"]:
-        # more headroom keeps the aisle closer to setpoint
+        # more headroom keeps the aisle (or coolant) closer to setpoint
         ratio = h["it_load_kw"] / avail if avail else 1
-        return round(SETPOINT_C + 2.5 * ratio, 2)
+        return round(lim["setpoint"] + (4.0 if lim["unit"] == "CDU" else 2.5) * ratio, 2)
     return 99.0
 
 
@@ -81,8 +103,10 @@ def drill(h: dict, m: dict, kind: str, minutes: int = 90, units_lost: int = 2,
                      gen_fail_p chance each fails; cooling stops until generators carry it, 60 s),
           'fiber'   (handled by the network simulator; here only reports no facility impact)."""
     rnd = random.Random(seed)
+    lim = limits(h)
+    unit = lim["unit"]
     it = h["it_load_kw"]
-    mass = max(1.0, it) * KJ_PER_K_PER_KW  # kJ per K
+    mass = max(1.0, it) * lim["kj_per_k_per_kw"]  # kJ per K
     temp = steady_inlet(h)
     timeline, actions = [], []
     breach_min = None
@@ -102,7 +126,7 @@ def drill(h: dict, m: dict, kind: str, minutes: int = 90, units_lost: int = 2,
         if kind == "cooling":
             avail_units -= units_lost if t < repair_min else 0
             if t == 0:
-                actions.append(f"t+0: {units_lost} CRAH units trip; {avail_units} of {h['crah_units']} left")
+                actions.append(f"t+0: {units_lost} {unit} units trip; {avail_units} of {h['crah_units']} left")
             if t == repair_min:
                 actions.append(f"t+{t}: units restored by maintenance")
         if kind == "utility":
@@ -114,12 +138,12 @@ def drill(h: dict, m: dict, kind: str, minutes: int = 90, units_lost: int = 2,
         # heat balance: (IT - removed) kW for 60 s into the thermal mass
         temp += (it - removed) * 60 / mass
         # cooling recovers towards setpoint when there is surplus capacity
-        if removed >= it and temp > SETPOINT_C + 2:
+        if removed >= it and temp > lim["setpoint"] + 2:
             surplus = max(0, avail_units) * h["crah_kw_each"] - it
-            temp -= min(temp - (SETPOINT_C + 2), surplus * 60 / mass)
-        if temp > ALLOWABLE_MAX_C and breach_min is None:
+            temp -= min(temp - (lim["setpoint"] + 2), surplus * 60 / mass)
+        if temp > lim["allowable"] and breach_min is None:
             breach_min = t
-            actions.append(f"t+{t}: inlet {temp:.1f} C passed {ALLOWABLE_MAX_C} C allowable; open containment, start load shedding")
+            actions.append(f"t+{t}: {lim['measure']} {temp:.1f} C passed {lim['allowable']} C; {lim['breach_action']}")
         if kind == "utility" and t == h["ups_minutes"] and gens_ok < math.ceil((it * 1.6) / 1500):
             actions.append(f"t+{t}: UPS exhausted without enough generators: critical load drop")
             timeline.append({"min": t, "inlet_c": round(temp, 2), "outage": True})
@@ -128,7 +152,8 @@ def drill(h: dict, m: dict, kind: str, minutes: int = 90, units_lost: int = 2,
                     "actions": actions}
         timeline.append({"min": t, "inlet_c": round(temp, 2)})
     peak = max(x["inlet_c"] for x in timeline)
-    return {"hall": h["id"], "kind": kind, "outage": False, "breach_min": breach_min,
+    return {"hall": h["id"], "kind": kind, "cooling_type": h.get("cooling_type", "air"), "measure": lim["measure"],
+            "outage": False, "breach_min": breach_min,
             "peak_inlet_c": round(peak, 2), "timeline": timeline[::5], "actions": actions,
-            "verdict": ("held within recommended range" if peak <= RECOMMENDED_MAX_C else
-                        "within allowable range" if peak <= ALLOWABLE_MAX_C else "breached allowable range")}
+            "verdict": ("held within recommended range" if peak <= lim["recommended"] else
+                        "within allowable range" if peak <= lim["allowable"] else "breached allowable range")}

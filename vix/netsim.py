@@ -235,10 +235,14 @@ class IX:
 def build(metro: str, max_as: int = 48, rs_filtering: bool = False, seed: int = 7) -> IX:
     rnd = random.Random(seed)
     rows = db.rows("select distinct t.id, t.name, t.kind, t.asn, t.prefixes from tenants t"
-                   " join ports p on p.tenant=t.id join sites s on s.id=p.site where s.metro=? order by t.asn",
-                   (metro,))
+                   " join ports p on p.tenant=t.id join sites s on s.id=p.site where s.metro=?"
+                   " union select t.id, t.name, t.kind, t.asn, t.prefixes from tenants t"
+                   " join ix_ports x on x.tenant=t.id where x.metro=? order by 4", (metro, metro))
+    members = {r["tenant"] for r in db.rows("select distinct tenant from ix_ports where metro=?", (metro,))}
+    asn_of = {r["id"]: r["asn"] for r in rows}
     if len(rows) > max_as:
         carriers = [r for r in rows if r["kind"] == "carrier"]
+        rnd.shuffle(carriers)
         rest = [r for r in rows if r["kind"] != "carrier"]
         keep = carriers[: max_as // 3]
         keep += rnd.sample(rest, min(len(rest), max_as - len(keep)))
@@ -248,7 +252,10 @@ def build(metro: str, max_as: int = 48, rs_filtering: bool = False, seed: int = 
         n = max(1, min(3, r["prefixes"] // 8 or 1))
         ases.append(AS(r["asn"], r["name"], r["kind"], [f"{r['asn']}.{i}/24" for i in range(n)]))
     by = {k: [a.asn for a in ases if a.kind == k] for k in ("carrier", "cloud", "content", "enterprise", "financial")}
-    rs_clients = set(by["cloud"] + by["content"] + by["carrier"])
+    # exchange members (tenants holding an IX port here) are the route-server clients
+    rs_clients = {asn_of[t] for t in members if t in asn_of} if members else set(by["cloud"] + by["content"] + by["carrier"])
+    rs_clients &= {a.asn for a in ases}
+    legacy = not members
     ix = IX(metro, ases, (), rs_filtering, seed)
     carriers = by["carrier"] or [ases[0].asn]
     # carriers peer bilaterally with each other
@@ -262,7 +269,7 @@ def build(metro: str, max_as: int = 48, rs_filtering: bool = False, seed: int = 
             for u in ups:
                 if u != a:
                     ix.link(a, u, "provider")
-            if k in ("enterprise", "financial") and rnd.random() < 0.3:
+            if legacy and k in ("enterprise", "financial") and rnd.random() < 0.3:
                 rs_clients.add(a)
     ix.rs_clients = rs_clients
     return ix
