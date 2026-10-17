@@ -287,7 +287,8 @@ def dashboard(slug: str, days: int = 90) -> dict:
                 val, kind = r["rows"], "table"
             tiles.append({**t, "data": {"name": "explore", "title": t.get("title") or f"{m0} by {d0 or 'total'}",
                                         "unit": r["units"][m0], "kind": kind, "days": t["explore"].get("days", days),
-                                        "value": val, "as_of": r["as_of"]}})
+                                        "value": val, "as_of": r["as_of"], "rows": r["rows"], "dims": r["dims"],
+                                        "measure": m0}})
         else:
             tiles.append({**t, "data": metric(t["metric"], t.get("days", days))})
     return {**d, "slug": slug, "days": days, "tiles": tiles}

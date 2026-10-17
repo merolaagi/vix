@@ -114,13 +114,22 @@ MATCH p=(:VixIncident)-[:IMPACTED]->(:VixCustomer)-[:BUYS]->(:VixProduct)-[:EARN
 
 Set `VIX_NEO4J=off` to skip the sync.
 
-## Explore (self-service BI)
+## Explore (self-service BI, Tableau-style)
 
-HQ's **Explore** tab is a small Tableau-style query builder over the warehouse: pick a
-source (revenue, operations, tickets, pipeline, bookings, contracts, energy, network),
-measures, up to two dimensions, a filter and a chart, then pin it to a dashboard in
-Insights. Only fields from the semantic model are accepted, so the SQL it shows is
-always safe. Same thing over MCP: `bi_explore_model`, `bi_explore`, `bi_pin_explore`.
+HQ's **Explore (BI)** tab is a drag-and-drop workbook over the warehouse. Pick a data
+source; the left pane lists its **Dimensions** (blue) and **Measures** (green). Drag
+fields onto the **Columns**, **Rows** and **Filters** shelves (or click a field to drop
+it where it fits). Show Me picks the chart: a line when a time dimension is on a
+shelf (one line per category when there is a second dimension), bars otherwise,
+horizontal when the dimension is on Rows. Swap, sort, date range, and **Pin to
+dashboard** (it appears in Insights under Saved explorations). The underlying rows and
+the SQL are one click away. Only fields from the semantic model are accepted, so the
+SQL is always safe. Same over MCP: `bi_explore_model`, `bi_explore`, `bi_pin_explore`.
+For Tableau itself, the Tableau export writes a `.hyper` extract (Insights tab).
+
+## Light and dark mode
+
+HQ follows your system setting; the button next to the logo switches and remembers it.
 
 ## Ask vix (chatbot)
 

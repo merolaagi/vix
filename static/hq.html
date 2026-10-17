@@ -6,9 +6,21 @@
 <title>vix HQ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script>try{const t=localStorage.getItem('vix-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 <style>
 :root{--bg:#0d1117;--panel:#141a22;--panel2:#1a222c;--line:#263140;--ink:#d8e1ea;--dim:#8a98a8;--accent:#4fd1c5;--amber:#f2b84b;--red:#ef6b6b;--green:#5fd38d;--violet:#a78bfa;
+--super-b:#3b4f63;--super-g:#17212c;--go-b:#2f6f69;--ok-b:#2c5b40;--no-b:#6a2f2f;--warn-b:#5a4a1f;--ok-bg:#16301f;--bad-bg:#341818;--warn-bg:#33290f;
+--edge:#33414f;--user-msg:#1d3b39;--on-accent:#04201d;--shadow:#000a;--dimc:#3f7fc0;--meac:#2f9a68;color-scheme:dark;
 --mono:'IBM Plex Mono',ui-monospace,monospace;--sans:'IBM Plex Sans',system-ui,sans-serif}
+@media (prefers-color-scheme: light){:root:not([data-theme=dark]){--bg:#f5f7fa;--panel:#ffffff;--panel2:#eef1f5;--line:#d8dee6;--ink:#18212c;--dim:#5a6878;--accent:#0b8077;--amber:#a86a0c;--red:#c2393b;--green:#1f7d4b;--violet:#6a4bc9;
+--super-b:#c9d3df;--super-g:#f1f4f9;--go-b:#7cc3bd;--ok-b:#9fd0b2;--no-b:#e6a9a9;--warn-b:#e3c88f;--ok-bg:#e3f4ea;--bad-bg:#fbe5e5;--warn-bg:#fbf0d9;
+--edge:#c3ccd7;--user-msg:#d9f0ed;--on-accent:#ffffff;--shadow:#0002;--dimc:#2f6fb0;--meac:#23824f;color-scheme:light;}}
+:root[data-theme=light]{--bg:#f5f7fa;--panel:#ffffff;--panel2:#eef1f5;--line:#d8dee6;--ink:#18212c;--dim:#5a6878;--accent:#0b8077;--amber:#a86a0c;--red:#c2393b;--green:#1f7d4b;--violet:#6a4bc9;
+--super-b:#c9d3df;--super-g:#f1f4f9;--go-b:#7cc3bd;--ok-b:#9fd0b2;--no-b:#e6a9a9;--warn-b:#e3c88f;--ok-bg:#e3f4ea;--bad-bg:#fbe5e5;--warn-bg:#fbf0d9;
+--edge:#c3ccd7;--user-msg:#d9f0ed;--on-accent:#ffffff;--shadow:#0002;--dimc:#2f6fb0;--meac:#23824f;color-scheme:light;}
+:root[data-theme=dark]{--bg:#0d1117;--panel:#141a22;--panel2:#1a222c;--line:#263140;--ink:#d8e1ea;--dim:#8a98a8;--accent:#4fd1c5;--amber:#f2b84b;--red:#ef6b6b;--green:#5fd38d;--violet:#a78bfa;
+--super-b:#3b4f63;--super-g:#17212c;--go-b:#2f6f69;--ok-b:#2c5b40;--no-b:#6a2f2f;--warn-b:#5a4a1f;--ok-bg:#16301f;--bad-bg:#341818;--warn-bg:#33290f;
+--edge:#33414f;--user-msg:#1d3b39;--on-accent:#04201d;--shadow:#000a;--dimc:#3f7fc0;--meac:#2f9a68;color-scheme:dark;}
 *{box-sizing:border-box}
 a{color:var(--accent)}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans)}
@@ -28,7 +40,7 @@ h2{font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.12em;color
 .grid.wide{grid-template-columns:repeat(auto-fill,minmax(440px,1fr))}
 @media(max-width:520px){.grid.wide{grid-template-columns:1fr}}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
-.card.super{border-color:#3b4f63;background:linear-gradient(180deg,#17212c,var(--panel))}
+.card.super{border-color:var(--super-b);background:linear-gradient(180deg,var(--super-g),var(--panel))}
 .card h3{margin:0 0 2px;font-size:15px}.agent{font:600 12px var(--mono);color:var(--accent)}
 .card.super .agent{color:var(--violet)}
 .mission{color:var(--dim);font-size:13px;margin:6px 0 10px}
@@ -39,14 +51,14 @@ h2{font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.12em;color
 .params label{font-size:11px;color:var(--dim);display:flex;flex-direction:column;gap:2px}
 input,select,textarea{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:5px 7px;font:12px var(--mono)}
 button.b{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:5px 10px;cursor:pointer;font:500 12px var(--sans);white-space:nowrap}
-button.b:hover{border-color:var(--accent)}button.b.go{border-color:#2f6f69;color:var(--accent)}
-button.b.ok{color:var(--green);border-color:#2c5b40}button.b.no{color:var(--red);border-color:#6a2f2f}
+button.b:hover{border-color:var(--accent)}button.b.go{border-color:var(--go-b);color:var(--accent)}
+button.b.ok{color:var(--green);border-color:var(--ok-b)}button.b.no{color:var(--red);border-color:var(--no-b)}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 th{color:var(--dim);font-weight:500;font-size:12px}td.n{font-family:var(--mono);text-align:right}
 .tw{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px}
 .st{font:600 11px var(--mono);padding:1px 6px;border-radius:4px}
-.st.done{color:var(--green);background:#16301f}.st.failed{color:var(--red);background:#341818}.st.running{color:var(--amber);background:#33290f}
+.st.done{color:var(--green);background:var(--ok-bg)}.st.failed{color:var(--red);background:var(--bad-bg)}.st.running{color:var(--amber);background:var(--warn-bg)}
 .bar{height:6px;background:var(--panel2);border-radius:3px;overflow:hidden;min-width:60px}.bar i{display:block;height:100%;background:var(--accent)}
 .bar i.hot{background:var(--amber)}.bar i.over{background:var(--red)}
 .split{display:grid;grid-template-columns:300px 1fr;gap:14px}
@@ -66,29 +78,58 @@ th{color:var(--dim);font-weight:500;font-size:12px}td.n{font-family:var(--mono);
 .toast{position:fixed;bottom:16px;right:16px;background:var(--panel2);border:1px solid var(--accent);padding:10px 14px;border-radius:8px;display:none;max-width:360px;z-index:9}
 @media(max-width:800px){.split{grid-template-columns:1fr}main{padding:12px}}
 .chips{display:flex;gap:4px;flex-wrap:wrap}.chip{font:11px var(--mono);padding:1px 6px;border-radius:4px;background:var(--panel2);border:1px solid var(--line)}
-.chip.ok{color:var(--green);border-color:#2c5b40}.chip.no{color:var(--amber);border-color:#5a4a1f}
+.chip.ok{color:var(--green);border-color:var(--ok-b)}.chip.no{color:var(--amber);border-color:var(--warn-b)}
 .gwrap{display:grid;grid-template-columns:1fr 320px;gap:12px}@media(max-width:900px){.gwrap{grid-template-columns:1fr}}
 #gsvg{width:100%;height:520px;background:var(--panel);border:1px solid var(--line);border-radius:10px;display:block;touch-action:none}
-#gsvg text{fill:var(--ink);font:10px var(--mono);pointer-events:none}#gsvg line{stroke:#33414f}#gsvg circle{cursor:pointer;stroke:var(--bg);stroke-width:1.5}
+#gsvg text{fill:var(--ink);font:10px var(--mono);pointer-events:none}#gsvg line{stroke:var(--edge)}#gsvg circle{cursor:pointer;stroke:var(--bg);stroke-width:1.5}
 .legend{display:flex;gap:10px;flex-wrap:wrap;font:11px var(--mono);color:var(--dim);margin:6px 0}.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px}
 .form{display:flex;gap:8px;flex-wrap:wrap;align-items:end}.form label{font-size:11px;color:var(--dim);display:flex;flex-direction:column;gap:3px}
 .mlist{display:flex;gap:8px;flex-wrap:wrap}.mlist label{flex-direction:row;align-items:center;gap:4px;font:12px var(--mono);color:var(--ink)}
 pre.sql{font:11px var(--mono);color:var(--dim);white-space:pre-wrap;margin:8px 0 0}
-#askbtn{position:fixed;right:18px;bottom:18px;z-index:8;background:var(--accent);color:#04201d;border:0;border-radius:22px;padding:10px 16px;font:600 13px var(--sans);cursor:pointer;box-shadow:0 4px 18px #0008}
-#ask{position:fixed;right:18px;bottom:70px;width:min(420px,calc(100vw - 32px));height:min(560px,calc(100vh - 110px));background:var(--panel);border:1px solid var(--line);border-radius:12px;z-index:8;display:none;flex-direction:column;box-shadow:0 8px 30px #000a}
+#askbtn{position:fixed;right:18px;bottom:18px;z-index:8;background:var(--accent);color:var(--on-accent);border:0;border-radius:22px;padding:10px 16px;font:600 13px var(--sans);cursor:pointer;box-shadow:0 4px 18px var(--shadow)}
+#ask{position:fixed;right:18px;bottom:70px;width:min(420px,calc(100vw - 32px));height:min(560px,calc(100vh - 110px));background:var(--panel);border:1px solid var(--line);border-radius:12px;z-index:8;display:none;flex-direction:column;box-shadow:0 8px 30px var(--shadow)}
 #ask.on{display:flex}#ask .hd{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
 #ask .msgs{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
-.msg{padding:8px 11px;border-radius:10px;max-width:92%;font-size:13px;white-space:pre-wrap;word-wrap:break-word}.msg.u{align-self:flex-end;background:#1d3b39}.msg.a{align-self:flex-start;background:var(--panel2)}
+.msg{padding:8px 11px;border-radius:10px;max-width:92%;font-size:13px;white-space:pre-wrap;word-wrap:break-word}.msg.u{align-self:flex-end;background:var(--user-msg)}.msg.a{align-self:flex-start;background:var(--panel2)}
 .msg .tl{color:var(--dim);font:10px var(--mono);margin-top:4px}
 #ask form{display:flex;gap:6px;padding:10px;border-top:1px solid var(--line)}#ask input{flex:1;font:13px var(--sans);padding:8px}
 .sugg{display:flex;gap:4px;flex-wrap:wrap;padding:0 12px 8px}.sugg a{font-size:11px;background:var(--panel2);padding:2px 7px;border-radius:10px;text-decoration:none}
+
+.tb{display:grid;grid-template-columns:230px minmax(0,1fr);gap:12px;margin-top:14px}@media(max-width:800px){.tb{grid-template-columns:1fr}}
+.datapane{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;align-self:start}.datapane select{width:100%}
+.ph{font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--dim);margin:14px 0 6px;display:flex;align-items:center;gap:6px}
+.ph i{width:9px;height:9px;border-radius:2px;display:inline-block}
+.fields{display:flex;flex-direction:column;gap:4px}
+.fld{font:12px var(--mono);padding:4px 8px;border-radius:6px;cursor:grab;border:1px solid var(--line);background:var(--panel2);user-select:none;display:flex;justify-content:space-between;gap:6px}
+.fld.dim{border-left:4px solid var(--dimc)}.fld.mea{border-left:4px solid var(--meac)}.fld:hover{border-color:var(--accent)}.fld small{color:var(--dim)}
+.fld.used{opacity:.5}
+.shelf{display:grid;grid-template-columns:76px minmax(0,1fr);align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 8px;margin-bottom:6px;min-height:40px}
+.shelf.over{border-color:var(--accent);background:var(--panel2)}
+.sl{font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--dim)}
+.pills{display:flex;gap:6px;flex-wrap:wrap;min-height:26px;align-items:center}
+.pill{font:12px var(--mono);padding:3px 4px 3px 10px;border-radius:13px;display:inline-flex;gap:6px;align-items:center;cursor:grab;color:#fff}
+.pill.dim{background:var(--dimc)}.pill.mea{background:var(--meac)}
+.pill button{background:none;border:0;color:inherit;cursor:pointer;font-size:13px;padding:0 4px}
+.pill select,.pill input{padding:1px 4px;font-size:11px;max-width:120px}
+.pills .hint{color:var(--dim);font-size:12px}
+.toolbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0}
+.seg{display:inline-flex}.seg button{border-radius:0;margin-left:-1px}.seg button:first-child{border-radius:6px 0 0 6px}.seg button:last-child{border-radius:0 6px 6px 0}
+.seg button.on{border-color:var(--accent);color:var(--accent);position:relative}
+.view{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;min-height:240px}
+.view svg{width:100%;display:block}.view svg text{fill:var(--dim);font:10px var(--mono)}
+.panel+.panel{margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+.panel .pt{font-weight:600;margin-bottom:6px}
+.lg{display:flex;gap:12px;flex-wrap:wrap;font:11px var(--mono);color:var(--dim);margin-top:6px}.lg i{display:inline-block;width:12px;height:3px;margin-right:5px;vertical-align:middle;border-radius:2px}
+.presets{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px}
+details.dt summary{cursor:pointer;color:var(--dim);font-size:12px;margin:10px 0 6px}
 </style>
 </head>
 <body>
 <header>
   <div><div class="brand"><b>vix</b> HQ</div><div class="tag" id="tagline">Virtual Interconnection eXchange · simulated</div></div>
+  <button class="b" id="themebtn" title="Switch light / dark" aria-label="Switch light or dark theme"></button>
   <nav>
-    <button data-t="overview" class="on">Overview</button><button data-t="world">World</button><button data-t="business">Business</button><button data-t="insights">Insights</button><button data-t="crm">CRM</button><button data-t="network">Network</button><button data-t="roles">Roles</button><button data-t="graph">Graph</button><button data-t="explore">Explore</button>
+    <button data-t="overview" class="on">Overview</button><button data-t="world">World</button><button data-t="business">Business</button><button data-t="insights">Insights</button><button data-t="crm">CRM</button><button data-t="network">Network</button><button data-t="roles">Roles</button><button data-t="graph">Graph</button><button data-t="explore">Explore (BI)</button>
     <button data-t="decisions">Decisions <span id="dcount"></span></button><button data-t="reports">Reports</button>
     <button data-t="schedules">Schedules</button>
   </nav>
@@ -181,23 +222,30 @@ pre.sql{font:11px var(--mono);color:var(--dim);white-space:pre-wrap;margin:8px 0
       <button class="b go" id="cygo">Run</button></div><p class="note" id="cynote"></p><div class="tw"><table id="cyres"></table></div></div>
   </section>
   <section class="tab" id="explore">
-    <div class="card" style="margin-top:14px">
-      <div class="form">
-        <label>Source<select id="xsrc"></select></label>
-        <label>Group by<select id="xd1"></select></label><label>then by<select id="xd2"></select></label>
-        <label>Last<select id="xdays"><option value="">all days</option><option value="30">30 days</option><option value="90">90 days</option><option value="365">365 days</option></select></label>
-        <label>Chart<select id="xchart"><option>bar</option><option>line</option><option>table</option></select></label>
-        <label>Limit<input id="xlimit" value="50" size="4"></label>
+    <div class="tb">
+      <aside class="datapane">
+        <div class="ph" style="margin-top:0">Data source</div><select id="xsrc"></select>
+        <div class="ph"><i style="background:var(--dimc)"></i>Dimensions</div><div class="fields" id="xdims"></div>
+        <div class="ph"><i style="background:var(--meac)"></i>Measures</div><div class="fields" id="xmeas"></div>
+        <p class="note" style="margin-top:12px">Drag fields onto Columns, Rows or Filters. Click a field to drop it where it fits. Drag a pill between shelves or off with ✕.</p>
+      </aside>
+      <div style="min-width:0">
+        <div class="presets" id="xpre"></div>
+        <div class="shelf" data-shelf="cols"><span class="sl">Columns</span><div class="pills"></div></div>
+        <div class="shelf" data-shelf="rows"><span class="sl">Rows</span><div class="pills"></div></div>
+        <div class="shelf" data-shelf="filters"><span class="sl">Filters</span><div class="pills"></div></div>
+        <div class="toolbar">
+          <span class="note">Show me</span><span class="seg" id="xmark"><button class="b on" data-m="auto">Auto</button><button class="b" data-m="bar">Bar</button><button class="b" data-m="line">Line</button><button class="b" data-m="text">Number</button><button class="b" data-m="table">Table</button></span>
+          <select id="xdays" aria-label="Date range"><option value="">All days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last 365 days</option></select>
+          <select id="xsort" aria-label="Sort"><option value="">Natural order</option><option value="desc">Largest first</option><option value="asc">Smallest first</option></select>
+          <button class="b" id="xswap" title="Swap rows and columns">⇄ Swap</button><button class="b" id="xclear">Clear</button>
+          <span style="flex:1"></span>
+          <input id="xtitle" placeholder="Sheet title" size="16"><button class="b go" id="xpin">Pin to dashboard</button>
+        </div>
+        <div class="view" id="xview"></div>
+        <details class="dt" id="xdt"><summary>Underlying data and SQL</summary><div class="tw"><table id="xres"></table></div><pre class="sql" id="xsql"></pre></details>
       </div>
-      <div style="margin-top:10px" class="note">Measures</div><div class="mlist" id="xmeas"></div>
-      <div class="form" style="margin-top:10px"><label>Filter<select id="xff"></select></label><label>op<select id="xfo"><option>=</option><option>!=</option><option>contains</option><option>in</option><option>&gt;</option><option>&lt;</option></select></label>
-        <label>value<input id="xfv" placeholder="e.g. enterprise"></label>
-        <button class="b go" id="xrun">Run</button><label>Tile title<input id="xtitle" placeholder="My chart"></label><button class="b" id="xpin">Pin to dashboard</button></div>
     </div>
-    <p class="note" id="xnote"></p>
-    <div class="tile" id="xchartout" style="margin-top:10px"></div>
-    <div class="tw" style="margin-top:10px"><table id="xres"></table></div>
-    <pre class="sql" id="xsql"></pre>
   </section>
   <section class="tab" id="decisions"><h2>Decisions filed by the super agents</h2><div id="declist"></div></section>
   <section class="tab" id="reports"><div class="split"><div class="list" id="replist"></div><div class="md" id="repview"><p class="note">Pick a report.</p></div></div></section>
@@ -375,10 +423,13 @@ async function renderDash(){
   $('#dashnote').textContent=`${d.title} · owner ${d.owner||'Prism'} · warehouse as of ${d.tiles[0]?.data.as_of||'–'}`;
   $('#dash').innerHTML=d.tiles.map(t=>{const m=t.data,v=m.value;let body='';
     if(t.chart==='kpi')body=`<div class="big">${fmtv(v,m.unit)}</div>`;
+    else if(t.explore&&m.dims&&m.dims.length&&(t.chart==='line'||t.chart==='bar')){const W=Math.max(280,($('#dash').clientWidth||900)-(t.chart==='line'?40:($('#dash').clientWidth||900)/2+40));
+      const td=m.dims.find(d=>d==='date'||d==='month')||m.dims[0],od=m.dims.find(d=>d!==td)||null;
+      body=t.chart==='line'?xLine(W,m.rows,td,od,m.measure,m.unit):xBars(m.rows.map(x=>m.dims.map(d=>x[d]).join(' · ')),m.rows.map(x=>x[m.measure]),m.unit)}
     else if(t.chart==='line')body=lineSvg(v||[],m.unit);
     else if(t.chart==='bar')body=barHtml(v||[],m.unit);
     else body=tblHtml(v||[]);
-    return `<div class="tile ${t.wide?'wide':''}"><div class="t">${esc(m.title)}${t.chart!=='kpi'?'':' · '+m.days+'d'}</div>${body}</div>`}).join('')}
+    return `<div class="tile ${t.wide||(t.explore&&t.chart==='line')?'wide':''}"><div class="t">${esc(m.title)}${t.chart!=='kpi'?'':' · '+m.days+'d'}</div>${body}</div>`}).join('')}
 async function crmTab(){
   const s=await api('/api/crm/summary');
   const acc=Object.fromEntries(s.accounts.map(a=>[a.Type,a.n]));const won=s.closed_90d.find(x=>x.StageName==='Closed Won')||{},lost=s.closed_90d.find(x=>x.StageName==='Closed Lost')||{};
@@ -443,10 +494,10 @@ function gDraw(center){
   const ring1=[...new Set(adj[center]||[])].filter(i=>i in ix).sort((x,y)=>(N[ix[x]].label>N[ix[y]].label?1:-1));
   const placed=new Set([center]);const cx=W/2,cy=H/2,R1=Math.min(W,H)*.27,R2=Math.min(W*.47,H*.47);
   const cn=N[ix[center]];if(cn){cn.x=cx;cn.y=cy}
-  ring1.forEach((id,k)=>{const t=2*Math.PI*k/Math.max(ring1.length,1)-Math.PI/2,n=N[ix[id]];n.x=cx+W*.24*Math.cos(t);n.y=cy+H*.26*Math.sin(t);n.t=t;placed.add(id)});
+  ring1.forEach((id,k)=>{const t=2*Math.PI*k/Math.max(ring1.length,1)-Math.PI/2,n=N[ix[id]];n.x=cx+Math.max(W*.3,W/2-170)*.55*Math.cos(t);n.y=cy+H*.26*Math.sin(t);n.t=t;placed.add(id)});
   const outer=[];ring1.forEach(id=>(adj[id]||[]).forEach(o=>{if(!placed.has(o)&&o in ix){placed.add(o);outer.push([o,N[ix[id]].t])}}));
   N.forEach(n=>{if(!placed.has(n.id)){placed.add(n.id);outer.push([n.id,0])}});
-  outer.sort((p,q)=>p[1]-q[1]).forEach(([id],k)=>{const t=2*Math.PI*k/Math.max(outer.length,1)-Math.PI/2,n=N[ix[id]];n.x=cx+W*.44*Math.cos(t);n.y=cy+H*.45*Math.sin(t)});
+  outer.sort((p,q)=>p[1]-q[1]).forEach(([id],k)=>{const t=2*Math.PI*k/Math.max(outer.length,1)-Math.PI/2,n=N[ix[id]];n.x=cx+Math.max(W*.3,W/2-170)*Math.cos(t);n.y=cy+H*.45*Math.sin(t)});
   svg.innerHTML=E.map(e=>{const p=N[ix[e.src]],q=N[ix[e.dst]];return `<line x1="${p.x}" y1="${p.y}" x2="${q.x}" y2="${q.y}"><title>${esc(p.name)} -${e.type}-> ${esc(q.name)}</title></line>`}).join('')+
     N.map(n=>`<g><circle data-gid="${esc(n.id)}" cx="${n.x}" cy="${n.y}" r="${n.id===center?11:n.label==='Department'||n.label==='PnLLine'?8:6}" fill="${GCOL[n.label]||'#aaa'}"><title>${esc(n.label)}: ${esc(n.name)}</title></circle>
     ${N.length<45||n.id===center||['Department','PnLLine','Agent','Product'].includes(n.label)?`<text x="${n.x<W/2-20?n.x-9:n.x+9}" y="${n.y+3}" text-anchor="${n.x<W/2-20?'end':'start'}">${esc(n.name.length>26?n.name.slice(0,25)+'…':n.name)}</text>`:''}</g>`).join('');
@@ -466,30 +517,120 @@ $('#gpath').onclick=async()=>{const p=await api(`/api/graph/path?a=${encodeURICo
 $('#grebuild').onclick=async()=>{const r=await api('/api/graph/rebuild',{method:'POST'});toast('Loom is rebuilding the graph (run #'+r.run_id+')');setTimeout(()=>{G={nodes:[],edges:[]};graphTab()},4000)};
 $('#cygo').onclick=async()=>{try{const r=await api('/api/graph/cypher',{method:'POST',body:JSON.stringify({query:$('#cy').value})});$('#cynote').textContent=r.rows.length+' rows';$('#cyres').innerHTML=r.rows.length?'<tr>'+r.columns.map(c=>`<th>${esc(c)}</th>`).join('')+'</tr>'+r.rows.map(x=>'<tr>'+r.columns.map(c=>`<td>${esc(typeof x[c]==='object'?JSON.stringify(x[c]):x[c])}</td>`).join('')+'</tr>').join(''):''}catch(e){$('#cynote').textContent='Error: '+e.message;$('#cyres').innerHTML=''}};
 
-// ---------------- Explore
-let XM=null;
+// ---------------- Explore (drag-and-drop workbook)
+let XM=null;const XQ={source:'revenue',cols:[],rows:[],filters:[],mark:'auto'};
+const XPAL=['#3f7fc0','#e8833a','#d64f5c','#3fa7a0','#5aa152','#cfa936','#9a6bc0','#e58fb0'];
+const XPRE=[{t:'MRR by month and segment',source:'revenue',cols:['month','segment'],rows:['MRR']},
+  {t:'MRR by product',source:'revenue',rows:['product'],cols:['MRR'],sort:'desc'},
+  {t:'SLA by site',source:'tickets',rows:['site'],cols:['SLA met %'],sort:'asc'},
+  {t:'PUE and load by cooling',source:'operations',rows:['cooling'],cols:['PUE','IT kW']},
+  {t:'Network incidents by month',source:'network',cols:['month'],rows:['Incidents','SLA credits']},
+  {t:'Win rate by month',source:'bookings',cols:['month'],rows:['Win rate %']},
+  {t:'Carbon by metro',source:'energy',rows:['metro'],cols:['tCO2'],sort:'desc'}];
+const isTime=f=>f==='date'||f==='month';
+const xKind=f=>{const s=XM[XQ.source];return s.dims.includes(f)?'dim':(f in s.measures)?'mea':null};
 async function exploreTab(){
-  if(!XM){XM=await api('/api/bi/explore/model');$('#xsrc').innerHTML=Object.entries(XM).map(([k,v])=>`<option value="${k}">${esc(v.label)}</option>`).join('');$('#xsrc').onchange=xSource;xSource()}}
-function xSource(){const s=XM[$('#xsrc').value];
-  const opts='<option value="">—</option>'+s.dims.map(d=>`<option>${esc(d)}</option>`).join('');
-  $('#xd1').innerHTML=opts;$('#xd2').innerHTML=opts;$('#xff').innerHTML='<option value="">no filter</option>'+s.dims.map(d=>`<option>${esc(d)}</option>`).join('');
-  $('#xd1').value=s.dims.includes('month')?'month':s.dims[1]||s.dims[0];
-  $('#xmeas').innerHTML=Object.keys(s.measures).map((m,i)=>`<label><input type="checkbox" value="${esc(m)}" ${i===0?'checked':''}>${esc(m)}</label>`).join('');
-  $('#xchart').value=$('#xd1').value==='month'||$('#xd1').value==='date'?'line':'bar';xRun()}
-function xSpec(){const dims=[$('#xd1').value,$('#xd2').value].filter(Boolean),measures=[...document.querySelectorAll('#xmeas input:checked')].map(i=>i.value);
-  const sp={source:$('#xsrc').value,measures,dims,limit:parseInt($('#xlimit').value)||50};if($('#xdays').value)sp.days=parseInt($('#xdays').value);
-  if($('#xff').value&&$('#xfv').value)sp.filters=[{field:$('#xff').value,op:$('#xfo').value,value:$('#xfv').value}];return sp}
-async function xRun(){
-  try{const r=await api('/api/bi/explore',{method:'POST',body:JSON.stringify(xSpec())});const m=r.measures[0],u=r.units[m],d0=r.dims[0],ch=$('#xchart').value;
-    $('#xnote').textContent=`${r.rows.length} rows · warehouse as of ${r.as_of}`;
-    let body='';if(ch==='line'&&d0)body=lineSvg(r.rows.map(x=>({x:x[d0],y:x[m]})),u);
-    else if(ch==='bar')body=barHtml(r.rows.map(x=>({[d0||'total']:r.dims.map(d=>x[d]).join(' · ')||'total',[m]:x[m]})),u);
-    $('#xchartout').style.display=body?'block':'none';$('#xchartout').innerHTML=`<div class="t">${esc(m)}${d0?' by '+esc(r.dims.join(', ')):''}</div>`+body;
-    $('#xres').innerHTML=r.rows.length?'<tr>'+Object.keys(r.rows[0]).map(k=>`<th>${esc(k)}</th>`).join('')+'</tr>'+r.rows.map(x=>'<tr>'+Object.entries(x).map(([k,v])=>`<td class="${typeof v==='number'?'n':''}">${typeof v==='number'?fmtv(v,r.units[k]||''):esc(v)}</td>`).join('')+'</tr>').join(''):'';
-    $('#xsql').textContent=r.sql}
-  catch(e){$('#xnote').textContent='Error: '+e.message}}
-['#xd1','#xd2','#xdays','#xchart'].forEach(s=>$(s).onchange=xRun);$('#xmeas').onchange=xRun;$('#xrun').onclick=xRun;
-$('#xpin').onclick=async()=>{try{const r=await api('/api/bi/explore/pin',{method:'POST',body:JSON.stringify({spec:xSpec(),title:$('#xtitle').value||'Exploration',chart:$('#xchart').value})});toast(`Pinned to "Saved explorations" (${r.tiles} tiles). Open it in Insights.`)}catch(e){toast(e.message)}};
+  if(!XM){XM=await api('/api/bi/explore/model');
+    $('#xsrc').innerHTML=Object.entries(XM).map(([k,v])=>`<option value="${k}">${esc(v.label)}</option>`).join('');
+    $('#xsrc').onchange=()=>{XQ.source=$('#xsrc').value;XQ.cols=[];XQ.rows=[];XQ.filters=[];xFields();xShelves();xRun()};
+    $('#xpre').innerHTML='<span class="note" style="align-self:center">Start from:</span>'+XPRE.map((p,i)=>`<button class="b" data-xp="${i}">${esc(p.t)}</button>`).join('');
+    document.querySelectorAll('[data-xp]').forEach(b=>b.onclick=()=>xPreset(XPRE[b.dataset.xp]));
+    xDnD();xPreset(XPRE[0]);return}
+  xRun()}
+function xPreset(p){XQ.source=p.source;XQ.cols=[...(p.cols||[])];XQ.rows=[...(p.rows||[])];XQ.filters=[];XQ.mark='auto';
+  $('#xsrc').value=p.source;$('#xsort').value=p.sort||'';$('#xtitle').value=p.t;xMarkUi();xFields();xShelves();xRun()}
+function xFields(){const s=XM[XQ.source],used=new Set([...XQ.cols,...XQ.rows]);
+  const f=(n,k,u)=>`<div class="fld ${k} ${used.has(n)?'used':''}" draggable="true" data-f="${esc(n)}"><span>${esc(n)}</span>${u?`<small>${esc(u)}</small>`:''}</div>`;
+  $('#xdims').innerHTML=s.dims.map(d=>f(d,'dim',isTime(d)?'time':'')).join('');
+  $('#xmeas').innerHTML=Object.entries(s.measures).map(([m,u])=>f(m,'mea',u)).join('');
+  document.querySelectorAll('.fld').forEach(el=>{el.ondragstart=e=>e.dataTransfer.setData('text/plain',JSON.stringify({f:el.dataset.f}));el.onclick=()=>xAuto(el.dataset.f)})}
+function xAuto(f){if([...XQ.cols,...XQ.rows].includes(f))return;
+  if(xKind(f)==='dim'){xAdd(f,isTime(f)?'cols':'rows')}else{xAdd(f,XQ.rows.some(x=>xKind(x)==='dim')?'cols':'rows')}}
+function xAdd(f,shelf,from){
+  if(shelf==='filters'){if(xKind(f)!=='dim'){toast('Filters take dimensions');return}XQ.filters.push({field:f,op:'=',value:''});xShelves();
+    setTimeout(()=>{const ins=document.querySelectorAll('[data-shelf=filters] input');ins[ins.length-1]?.focus()},30);return}
+  if(from&&from!=='filters')XQ[from]=XQ[from].filter(x=>x!==f);
+  const dims=[...XQ.cols,...XQ.rows].filter(x=>xKind(x)==='dim');
+  if(xKind(f)==='dim'&&!dims.includes(f)&&dims.length>=2){toast('Up to two dimensions: remove one first');xShelves();return}
+  XQ.cols=XQ.cols.filter(x=>x!==f);XQ.rows=XQ.rows.filter(x=>x!==f);XQ[shelf].push(f);xFields();xShelves();xRun()}
+function xShelves(){
+  ['cols','rows'].forEach(sh=>{const box=document.querySelector(`[data-shelf=${sh}] .pills`);
+    box.innerHTML=XQ[sh].map(f=>`<span class="pill ${xKind(f)}" draggable="true" data-p="${esc(f)}" data-from="${sh}">${xKind(f)==='mea'?'SUM('+esc(f)+')':esc(f)}<button data-rm="${esc(f)}" aria-label="Remove ${esc(f)}">✕</button></span>`).join('')||`<span class="hint">Drop ${sh==='cols'?'a time dimension or measure':'a dimension or measure'} here</span>`});
+  const fb=document.querySelector('[data-shelf=filters] .pills');
+  fb.innerHTML=XQ.filters.map((x,i)=>`<span class="pill dim">${esc(x.field)} <select data-fi="${i}" data-k="op">${['=','!=','contains','in','>','<','>=','<='].map(o=>`<option ${o===x.op?'selected':''}>${esc(o)}</option>`).join('')}</select><input data-fi="${i}" data-k="value" value="${esc(x.value)}" placeholder="value" size="9"><button data-rf="${i}" aria-label="Remove filter">✕</button></span>`).join('')||'<span class="hint">Drop a dimension here to filter</span>';
+  document.querySelectorAll('.pill[data-p]').forEach(el=>el.ondragstart=e=>e.dataTransfer.setData('text/plain',JSON.stringify({f:el.dataset.p,from:el.dataset.from})));
+  document.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{const f=b.dataset.rm;XQ.cols=XQ.cols.filter(x=>x!==f);XQ.rows=XQ.rows.filter(x=>x!==f);xFields();xShelves();xRun()});
+  document.querySelectorAll('[data-rf]').forEach(b=>b.onclick=()=>{XQ.filters.splice(+b.dataset.rf,1);xShelves();xRun()});
+  fb.querySelectorAll('[data-fi]').forEach(el=>{const h=()=>{XQ.filters[+el.dataset.fi][el.dataset.k]=el.value;xRun()};el.onchange=h;if(el.tagName==='INPUT')el.onkeydown=e=>{if(e.key==='Enter')h()}})}
+function xDnD(){document.querySelectorAll('.shelf').forEach(sh=>{
+  sh.ondragover=e=>{e.preventDefault();sh.classList.add('over')};sh.ondragleave=()=>sh.classList.remove('over');
+  sh.ondrop=e=>{e.preventDefault();sh.classList.remove('over');let d;try{d=JSON.parse(e.dataTransfer.getData('text/plain'))}catch(_){return}xAdd(d.f,sh.dataset.shelf,d.from)}})}
+function xMarkUi(){document.querySelectorAll('#xmark button').forEach(b=>b.classList.toggle('on',b.dataset.m===XQ.mark))}
+document.querySelectorAll('#xmark button').forEach(b=>b.onclick=()=>{XQ.mark=b.dataset.m;xMarkUi();xRun()});
+$('#xdays').onchange=$('#xsort').onchange=()=>xRun();
+$('#xswap').onclick=()=>{[XQ.cols,XQ.rows]=[XQ.rows,XQ.cols];xShelves();xRun()};
+$('#xclear').onclick=()=>{XQ.cols=[];XQ.rows=[];XQ.filters=[];xFields();xShelves();xRun()};
+function xSpec(){const all=[...XQ.cols,...XQ.rows],dims=all.filter(x=>xKind(x)==='dim');let meas=all.filter(x=>xKind(x)==='mea');
+  if(!meas.length)meas=[Object.keys(XM[XQ.source].measures)[0]];
+  const sp={source:XQ.source,dims,measures:meas,limit:500};if($('#xdays').value)sp.days=+$('#xdays').value;
+  const so=$('#xsort').value;if(so&&!(dims[0]&&isTime(dims[0]))){sp.sort=meas[0];sp.desc=so==='desc'}
+  const fl=XQ.filters.filter(f=>String(f.value).trim()!=='').map(f=>({field:f.field,op:f.op,value:f.op==='in'?String(f.value).split(',').map(v=>v.trim()):f.value}));if(fl.length)sp.filters=fl;
+  return sp}
+let xLast=null,xTok=0;
+async function xRun(){if(!XM)return;const tok=++xTok;
+  try{const r=await api('/api/bi/explore',{method:'POST',body:JSON.stringify(xSpec())});if(tok!==xTok)return;xLast=r;xDraw(r)}
+  catch(e){$('#xview').innerHTML=`<p class="note">Error: ${esc(e.message)}</p>`}}
+const xShort=(v,u)=>v==null?'–':u==='usd'?(Math.abs(v)>=1e6?'$'+(v/1e6).toFixed(1)+'M':Math.abs(v)>=1e3?'$'+(v/1e3).toFixed(0)+'k':'$'+Math.round(v)):u==='pct'?(+v).toFixed(1)+'%':Math.abs(v)>=1e6?(v/1e6).toFixed(1)+'M':Math.abs(v)>=1e4?(v/1e3).toFixed(0)+'k':+(+v).toFixed(3);
+function xRange(vals,zero){let lo=Math.min(...vals),hi=Math.max(...vals);if(zero)lo=Math.min(0,lo);if(hi===lo)hi=lo+(Math.abs(lo)||1);if(!zero){const p=(hi-lo)*.08;lo-=p;hi+=p}return[lo,hi]}
+function xAxes(W,H,L,R,T,B,lo,hi,u){let g='';for(let i=0;i<=4;i++){const v=lo+(hi-lo)*i/4,y=T+(H-T-B)*(1-i/4);
+  g+=`<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="var(--line)"/><text x="${L-6}" y="${y+3}" text-anchor="end">${esc(xShort(v,u))}</text>`}return g}
+function xLine(W,rows,xk,sk,yk,u){
+  const H=270,L=58,R=14,T=10,B=26;const xs=[...new Set(rows.map(r=>r[xk]))].sort();
+  let ser=[null];if(sk){const tot={};rows.forEach(r=>tot[r[sk]]=(tot[r[sk]]||0)+(r[yk]||0));ser=Object.keys(tot).sort((a,b)=>tot[b]-tot[a]).slice(0,8)}
+  const idx={};rows.forEach(r=>idx[r[xk]+'\u0001'+(sk?r[sk]:'')]=r[yk]);
+  const vals=[];xs.forEach(x=>ser.forEach(s=>{const v=idx[x+'\u0001'+(s??'')];if(v!=null)vals.push(v)}));if(!vals.length)return'<p class="note">No data.</p>';
+  const[lo,hi]=xRange(vals,false),px=i=>L+(W-L-R)*(xs.length<2?.5:i/(xs.length-1)),py=v=>T+(H-T-B)*(1-(v-lo)/(hi-lo));
+  let g=xAxes(W,H,L,R,T,B,lo,hi,u);const step=Math.max(1,Math.ceil(xs.length/Math.max(2,Math.floor((W-L)/78))));
+  xs.forEach((x,i)=>{if(i%step===0||i===xs.length-1)g+=`<text x="${px(i)}" y="${H-8}" text-anchor="${xs.length>1&&i===0?'start':xs.length>1&&i===xs.length-1?'end':'middle'}">${esc(x)}</text>`});
+  ser.forEach((s,k)=>{const c=XPAL[k%8];let d='',dots='';xs.forEach((x,i)=>{const v=idx[x+'\u0001'+(s??'')];if(v==null)return;d+=(d?'L':'M')+px(i).toFixed(1)+','+py(v).toFixed(1);
+    if(xs.length<=40)dots+=`<circle cx="${px(i)}" cy="${py(v)}" r="2.6" fill="${c}"><title>${esc((s?s+' · ':'')+x+': '+fmtv(v,u))}</title></circle>`});
+    g+=`<path d="${d}" fill="none" stroke="${c}" stroke-width="2"/>${dots}`});
+  return `<svg viewBox="0 0 ${W} ${H}" style="height:${H}px">${g}</svg>`+(sk?`<div class="lg">${ser.map((s,k)=>`<span><i style="background:${XPAL[k%8]}"></i>${esc(s)}</span>`).join('')}${ser.length<new Set(rows.map(r=>r[sk])).size?'<span>top 8 shown</span>':''}</div>`:'')}
+function xCols(W,labels,vals,u){
+  const H=270,L=58,R=14,T=10,B=34,n=Math.min(labels.length,40);if(!n)return'<p class="note">No data.</p>';
+  const v=vals.slice(0,n),[lo,hi]=xRange(v.map(x=>x||0),true),bw=(W-L-R)/n,py=x=>T+(H-T-B)*(1-(x-lo)/(hi-lo));
+  let g=xAxes(W,H,L,R,T,B,lo,hi,u);const chars=Math.max(3,Math.floor(bw/6.2)),step=bw<16?Math.ceil(16/bw):1;
+  for(let i=0;i<n;i++){const x=L+i*bw+bw*.15,w=bw*.7,y0=py(0),y1=py(v[i]||0);
+    g+=`<rect x="${x}" y="${Math.min(y0,y1)}" width="${w}" height="${Math.abs(y1-y0)}" fill="var(--accent)" rx="2"><title>${esc(labels[i]+': '+fmtv(v[i],u))}</title></rect>`;
+    if(i%step===0){const t=String(labels[i]);g+=`<text x="${x+w/2}" y="${H-B+14}" text-anchor="middle">${esc(t.length>chars?t.slice(0,chars-1)+'…':t)}</text>`}}
+  return `<svg viewBox="0 0 ${W} ${H}" style="height:${H}px">${g}</svg>`+(labels.length>n?`<p class="note">First ${n} of ${labels.length} shown.</p>`:'')}
+function xBars(labels,vals,u){const n=Math.min(labels.length,40);if(!n)return'<p class="note">No data.</p>';const mx=Math.max(...vals.slice(0,n).map(v=>Math.abs(v||0)))||1;
+  return '<table>'+labels.slice(0,n).map((l,i)=>`<tr><td>${esc(String(l).replace(/_/g,' '))}</td><td class="n">${fmtv(vals[i],u)}</td><td style="width:55%"><div class="bar"><i style="width:${Math.abs(vals[i]||0)/mx*100}%"></i></div></td></tr>`).join('')+'</table>'+(labels.length>n?`<p class="note">First ${n} of ${labels.length} shown.</p>`:'')}
+function xDraw(r){
+  const dims=r.dims,W=Math.max(300,($('#xview').clientWidth||800)-30);
+  const td=dims.find(isTime),od=dims.find(d=>d!==td)||null;let mark=XQ.mark;if(mark==='auto')mark=!dims.length?'text':td?'line':'bar';
+  const lab=x=>dims.map(d=>x[d]).join(' · ');
+  const onRows=dims.length&&XQ.rows.includes(dims[0]);
+  let html='';
+  if(mark==='table'){html=`<p class="note">${r.rows.length} rows: see the table below.</p>`;$('#xdt').open=true}
+  else r.measures.forEach(m=>{const u=r.units[m];let body;
+    if(mark==='text'||!dims.length){const v=dims.length?r.rows.reduce((a,x)=>a+(x[m]||0),0):r.rows[0]?.[m];body=`<div class="tile" style="display:inline-block;min-width:220px"><div class="t">${esc(m)}${dims.length?' (sum of rows)':''}</div><div class="big">${fmtv(v,u)}</div></div>`}
+    else if(mark==='line')body=td?xLine(W,r.rows,td,od,m,u):xLine(W,r.rows,dims[0],dims[1]||null,m,u);
+    else body=onRows?xBars(r.rows.map(lab),r.rows.map(x=>x[m]),u):xCols(W,r.rows.map(lab),r.rows.map(x=>x[m]),u);
+    html+=`<div class="panel"><div class="pt">${esc(m)}${dims.length?' <span class="note">by '+esc(dims.join(' and '))+'</span>':''}</div>${body}</div>`});
+  $('#xview').innerHTML=html+`<p class="note" style="margin-top:10px">${esc(XM[r.source].label)} · ${r.rows.length} rows · warehouse as of ${esc(r.as_of)}</p>`;
+  $('#xres').innerHTML=r.rows.length?'<tr>'+Object.keys(r.rows[0]).map(k=>`<th>${esc(k)}</th>`).join('')+'</tr>'+r.rows.map(x=>'<tr>'+Object.entries(x).map(([k,v])=>`<td class="${typeof v==='number'?'n':''}">${typeof v==='number'?fmtv(v,r.units[k]||''):esc(v)}</td>`).join('')+'</tr>').join(''):'';
+  $('#xsql').textContent=r.sql}
+window.addEventListener('resize',()=>{if(xLast&&$('#explore').classList.contains('on'))xDraw(xLast)});
+$('#xpin').onclick=async()=>{const sp=xSpec();let m=XQ.mark==='auto'?(!sp.dims.length?'kpi':sp.dims.some(isTime)?'line':'bar'):XQ.mark==='text'?'kpi':XQ.mark;
+  try{const r=await api('/api/bi/explore/pin',{method:'POST',body:JSON.stringify({spec:sp,title:$('#xtitle').value||'Exploration',chart:m})});toast(`Pinned to "Saved explorations" (${r.tiles} tiles). Open it in Insights.`)}catch(e){toast(e.message)}};
+
+// ---------------- theme
+function themeUi(){const t=document.documentElement.dataset.theme||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');$('#themebtn').textContent=t==='light'?'☾ Dark':'☀ Light'}
+$('#themebtn').onclick=()=>{const cur=document.documentElement.dataset.theme||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'),nx=cur==='light'?'dark':'light';
+  document.documentElement.dataset.theme=nx;try{localStorage.setItem('vix-theme',nx)}catch(e){}themeUi();
+  if($('#graph').classList.contains('on')&&G.nodes.length)gDraw(G.center);if(xLast&&$('#explore').classList.contains('on'))xDraw(xLast)};
+themeUi();
 
 // ---------------- Ask vix
 const askHist=[];
