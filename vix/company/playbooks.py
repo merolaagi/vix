@@ -9,7 +9,7 @@ import json
 import random
 import time
 
-from .. import db, netsim, products, routerlab, thermal, world
+from .. import bi, crm, db, netsim, products, routerlab, thermal, world
 from . import charter as charter_mod
 from .engine import decision_add, decisions, kpis, playbook
 
@@ -38,8 +38,9 @@ def usd(v):
 
 # ---------------------------------------------------------------- Sales
 
-@playbook("sales_demand_cycle", "Demand cycle", "sales",
-          "Generate a day's worth of synthetic customer demand (existing tenants and new logos) as orders.",
+@playbook("sales_demand_cycle", "Demand & pipeline", "sales",
+          "Work the CRM pipeline: opportunities reaching their close date are won (placing the order) or lost; "
+          "then open a day's worth of new opportunities from existing customers and new logos.",
           {"days": {"type": "int", "default": 1}, "orders_per_day": {"type": "int", "default": 5},
            "new_logo_rate": {"type": "float", "default": 0.06}})
 def sales_demand_cycle(ctx):
@@ -53,8 +54,13 @@ def sales_demand_cycle(ctx):
     kinds = {"cabinets": .14, "ai_cabinets": .025, "port": .10, "cross_connect": .26, "vc": .12,
              "cloud_connection": .12, "cloud_router": .03, "edge_device": .06, "ix_port": .04, "metal": .07}
     placed, new_tenants = [], []
+    pipe = {"won": 0, "lost": 0, "advanced": 0}
     for _ in range(days):
-        n = max(0, int(rnd.gauss(rate, rate ** 0.5)))
+        step = crm.advance_pipeline(rnd)
+        for k in pipe:
+            pipe[k] += step[k]
+        rate_opps = rate / crm.WIN_RATE
+        n = max(0, int(rnd.gauss(rate_opps, rate_opps ** 0.5)))
         for _ in range(n):
             if rnd.random() < new_rate:
                 tid = world.new_tenant(rnd)
@@ -94,16 +100,22 @@ def sales_demand_cycle(ctx):
             else:
                 params = {"metro": home, "plan": rnd.choices(list(world.METAL_PLANS), [0.55, 0.35, 0.1])[0],
                           "count": rnd.choice([1, 2, 4, 8])}
-            o = world.place_order(tid, kind, params)
-            placed.append({"order": o["order_id"], "tenant": t["name"], "kind": kind, "params": json.dumps(params)})
-    ctx.log(f"placed {len(placed)} orders, signed {len(new_tenants)} new tenants")
+            oid = crm.open_opportunity(tid, kind, params, rnd.randint(2, 21),
+                                       "New Business" if tid in new_tenants else "Expansion")
+            placed.append({"opportunity": oid, "tenant": t["name"], "kind": kind, "params": json.dumps(params)})
+    ctx.log(f"pipeline: {pipe['won']} won, {pipe['lost']} lost; opened {len(placed)} opportunities, "
+            f"{len(new_tenants)} new logos")
     by_kind = {}
     for p in placed:
         by_kind[p["kind"]] = by_kind.get(p["kind"], 0) + 1
-    md = (f"Placed **{len(placed)} orders** over {days} day(s); **{len(new_tenants)} new tenants** signed.\n\n"
-          f"## By product\n\n" + table([{"kind": k, "orders": v} for k, v in sorted(by_kind.items())], ["kind", "orders"]) +
-          "\n## Orders\n\n" + table(placed, ["order", "tenant", "kind", "params"]))
-    return {"orders": len(placed), "new_tenants": len(new_tenants), "by_kind": by_kind}, md
+    md = (f"Pipeline: **{pipe['won']} won** (orders placed), {pipe['lost']} lost, {pipe['advanced']} moved stage. "
+          f"Opened **{len(placed)} opportunities** over {days} day(s); **{len(new_tenants)} new logos**. "
+          f"Win rate {crm.WIN_RATE:.0%}, sales cycle 2-21 days.\n\n"
+          f"## New opportunities by product\n\n" + table([{"kind": k, "opportunities": v} for k, v in sorted(by_kind.items())],
+                                                          ["kind", "opportunities"]) +
+          "\n## Opened today\n\n" + table(placed, ["opportunity", "tenant", "kind", "params"]))
+    return {"orders": pipe["won"], "lost": pipe["lost"], "opportunities": len(placed), "new_tenants": len(new_tenants),
+            "by_kind": by_kind}, md
 
 
 def _fulfil(ctx, kinds, label):
@@ -178,7 +190,7 @@ def cx_ticket_desk(ctx):
         w = week.get(s["site"], {"n": 0, "met": 0, "usd": 0})
         pct7 = round(100 * w["met"] / w["n"], 1) if w["n"] else 100.0
         rows.append({**s, "sla_7d": pct7, "billed_7d": round(w["usd"] or 0)})
-        if w["n"] >= 30 and pct7 < 92:
+        if w["n"] >= 60 and pct7 < 92:
             did = decision_add(ctx.agent, "hire_techs", f"Add a technician at {s['site']}",
                                {"site": s["site"], "add": 1, "reason": f"7-day SLA {pct7}% on {w['n']} tickets with {s['techs']} techs"})
             filed.append(did)
@@ -196,11 +208,15 @@ def cx_ticket_desk(ctx):
           "Renewal odds rise with interconnection density and cloud connections and fall with SLA misses.")
 def accounts_renewals(ctx):
     rnd = random.Random(f"acct-{products.today()}-{time.time()}")
+    opened = crm.open_renewals(90)
     events = products.run_renewals(rnd)
+    for e in events:
+        crm.close_renewal(e["tenant"], e["event"], e["mrr_after"])
     risk = products.at_risk(90, 10)
     ret = products.retention(90)
     ctx.log(f"{len(events)} contract events, net retention 90d {ret['net_retention']}")
-    md = (f"Simulated day **{products.today()}**: {len(events)} contract(s) reached their end date.\n\n"
+    md = (f"Simulated day **{products.today()}**: {len(events)} contract(s) reached their end date; "
+          f"{opened} renewal opportunities opened in the CRM (90-day horizon).\n\n"
           "## Today\n\n" + table(events, ["name", "kind", "event", "p_renew", "mrr_before", "mrr_after", "cross_connects",
                                           "sla_misses_90d", "note"]) +
           "\n## Last 90 days\n\n" + table([ret], ["renewed", "downsized", "churned", "mrr_up_for_renewal", "mrr_retained", "net_retention"]) +
@@ -420,7 +436,7 @@ def fin_monthly_close(ctx):
     dep = capex / 240
     ebitda = rev["total"] - power_cost - opex - labour
     margin = round(ebitda / rev["total"], 3) if rev["total"] else None
-    snap = {"mrr": rev["total"], "power_cost": round(power_cost), "opex": opex, "tech_labour": round(labour), "ebitda": round(ebitda),
+    snap = {"sim_date": products.today(), "mrr": rev["total"], "power_cost": round(power_cost), "opex": opex, "tech_labour": round(labour), "ebitda": round(ebitda),
             "ebitda_margin": margin, "depreciation": round(dep), "ebit": round(ebitda - dep), "ts": time.time()}
     db.set_setting("fin_last", snap)
     ctx.log(f"MRR {usd(rev['total'])}, EBITDA margin {margin:.1%}")
@@ -542,6 +558,257 @@ def rnd_research_cycle(ctx):
     return {"leak_grid": grid, "hijack": hj, "design": design, "best_ai_metros": best, "proposal": proposal}, md
 
 
+# ---------------------------------------------------------------- Data: CRM, BI, CDO, CEO
+
+@playbook("crm_sync", "CRM sync", "crm",
+          "Scribe brings the CRM in line with operations: accounts and contacts, contracts, assets "
+          "(cabinets, ports, cross-connects, circuits, cloud, edge, exchange, metal) and cases from tickets.")
+def crm_sync(ctx):
+    r = crm.sync()
+    s = crm.summary()
+    ctx.log(f"synced: {r}")
+    md = ("## Changes this sync\n\n" + table([r], list(r)) +
+          "\n## CRM now\n\n" + table(s["accounts"], ["Type", "n"]) +
+          f"\n{s['contacts']} contacts, {s['cases']:,} cases.\n\n## Open pipeline\n\n" +
+          table(s["open_pipeline"], ["Type", "StageName", "n", "mrr"]) +
+          "\n## Assets\n\n" + table(s["assets"], ["Status", "n"]))
+    return {**r, "last_sync": s["last_sync"]}, md
+
+
+@playbook("bi_nightly_load", "Warehouse load", "bi",
+          "Prism loads the simulated day into the warehouse (revenue, operations, tickets, pipeline, bookings, "
+          "contract events, energy) so every dashboard and metric reads the same numbers.")
+def bi_nightly_load(ctx):
+    r = bi.load()
+    st = bi.status()
+    ctx.log(f"loaded {r['date']}: {r['rows']} rows in {r['seconds']} s")
+    md = (f"Loaded **{r['date']}**: {r['rows']:,} fact rows in {r['seconds']} s. {st['days_loaded']} days in the warehouse.\n\n" +
+          table([{"table": k, "rows": v} for k, v in st["tables"].items()], ["table", "rows"]))
+    return r, md
+
+
+@playbook("bi_export", "Tableau export", "bi",
+          "Prism exports the warehouse to CSV and a Tableau .hyper extract (when Tableau's Hyper API is installed).")
+def bi_export(ctx):
+    r = bi.export()
+    ctx.log(f"exported to {r['dir']}")
+    hy = r["hyper"]
+    md = (f"Export written to `{r['dir']}`.\n\n" + table([{"table": k, "rows": v} for k, v in r["tables"].items()], ["table", "rows"]) +
+          ("\n**Tableau extract:** `vix_warehouse.hyper` " + f"({hy['bytes']:,} bytes). Open it in Tableau Desktop or Tableau Public."
+           if hy.get("written") else f"\nNo .hyper extract: {hy.get('reason')}. CSV files are ready for any tool.") + "\n")
+    return {"dir": r["dir"], "hyper": hy.get("written", False), "rows": sum(r["tables"].values())}, md
+
+
+def _audit_checks(use_rea: bool):
+    from .. import armory
+    today = products.today()
+    checks = []
+
+    def add(name, ok, detail, severity="high", warn=False):
+        checks.append({"check": name, "status": "pass" if ok else ("warn" if warn else "fail"),
+                       "severity": severity, "detail": detail})
+    active = db.scalar("select count(*) from contracts where status='active'")
+    cust = db.scalar("select count(*) from crm_account where Type='Customer'")
+    tenants = db.scalar("select count(*) from tenants")
+    accts = db.scalar("select count(*) from crm_account")
+    add("Accounts match tenants", accts == tenants and cust == active,
+        f"{tenants} tenants / {accts} accounts; {active} active contracts / {cust} customer accounts")
+    for src, sql in crm.ASSET_SOURCES:
+        ops_n = db.scalar(f"select count(*) from ({sql})")
+        crm_n = db.scalar("select count(*) from crm_asset where Status='Installed' and Source__c like ?", (src + ":%",))
+        add(f"Assets: {src.replace('_', ' ')}", ops_n == crm_n, f"operations {ops_n} / CRM installed {crm_n}")
+    t, cs = db.scalar("select count(*) from tickets"), db.scalar("select count(*) from crm_case")
+    add("Every ticket has a case", t == cs, f"{t:,} tickets / {cs:,} cases")
+    broken = db.scalar("select count(*) from crm_opportunity o where IsWon=1 and Type!='Renewal'"
+                       " and not exists (select 1 from orders r where r.id=o.Order__c)")
+    add("Won opportunities have orders", broken == 0, f"{broken} won opportunities without an order")
+    since = db.setting("crm_started_ts") or 0
+    direct = db.scalar("select count(*) from orders r where r.ts>? and not exists"
+                       " (select 1 from crm_opportunity o where o.Order__c=r.id)", (since,))
+    add("Orders came through the CRM", direct == 0, f"{direct} orders placed outside the pipeline since the CRM went live",
+        severity="low", warn=True)
+    live = products.revenue_breakdown()["total"]
+    wh_mrr = bi.metric("mrr")["value"] or 0
+    crm_mrr = db.scalar("select round(coalesce(sum(MRR__c),0),2) from crm_account") or 0
+    add("BI MRR = live billing", abs(wh_mrr - live) <= 1, f"warehouse ${wh_mrr:,.0f} / live ${live:,.0f}")
+    add("CRM MRR = live billing", abs(crm_mrr - live) <= 1, f"CRM ${crm_mrr:,.0f} / live ${live:,.0f}")
+    fin = db.setting("fin_last") or {}
+    if fin.get("sim_date") == today:
+        gap = abs(fin["mrr"] - live)
+        add("Finance close = live billing", gap <= 1,
+            f"close ${fin['mrr']:,.0f} / live ${live:,.0f}" + (" (activity after today's close)" if 1 < gap <= 0.005 * live else ""),
+            severity="high" if gap > 0.005 * live else "low", warn=gap <= 0.005 * live)
+    else:
+        add("Finance close is current", False, f"last close {fin.get('sim_date', 'never')}, today {today}",
+            severity="low", warn=True)
+    ops_nrr = products.retention(90)["net_retention"]
+    bi_nrr = bi.metric("net_retention", 90)["value"]
+    add("BI net retention = operations", (ops_nrr is None and bi_nrr is None) or
+        (ops_nrr is not None and bi_nrr is not None and abs(ops_nrr * 100 - bi_nrr) <= 0.1),
+        f"warehouse {bi_nrr}% / operations {None if ops_nrr is None else round(ops_nrr * 100, 1)}%")
+    sla_ops = products.sla_window(30)["sla_pct"]
+    s = bi.metric("sla_by_site", 30)["value"]
+    tk = sum(x["tickets"] for x in s)
+    sla_bi = round(100 * sum(x["tickets"] * x["sla_pct"] / 100 for x in s) / tk, 2) if tk else None
+    add("BI SLA = operations", sla_ops is None or (sla_bi is not None and abs(sla_ops - sla_bi) <= 0.1),
+        f"warehouse {sla_bi}% / operations {sla_ops}% (30 days)")
+    add("CRM synced today", db.setting("crm_synced") == today, f"last sync {db.setting('crm_synced')}")
+    add("Warehouse loaded today", db.setting("bi_loaded") == today, f"last load {db.setting('bi_loaded')}")
+    evidence = {}
+    if use_rea:
+        for which, prefix in (("crm", "crm_"), ("warehouse", "fact_")):
+            r = armory.run("rea_inspect_db", {"db": which})
+            if r.get("ok"):
+                names = [x["name"] for x in r["tables"]]
+                expected = list(crm.OBJECTS.values()) if which == "crm" else bi.FACT_TABLES
+                missing = [x for x in expected if x not in names]
+                add(f"REA schema evidence: {which}", not missing,
+                    f"evidence {r['evidence_id'][:18]}..., {len(names)} tables" + (f", missing {missing}" if missing else ""))
+                evidence[which] = r["evidence_id"]
+            else:
+                add(f"REA schema evidence: {which}", False, f"REA unavailable: {str(r.get('error'))[:120]}",
+                    severity="low", warn=True)
+        r = armory.run("api_contract_check", {})
+        if "checks" in r:
+            add("API contract (Salesforce-shaped + BI)", r["ok"], f"{r['passed']}/{r['total']} endpoint checks pass; REA HAR "
+                + (r["rea"].get("evidence_id", "")[:18] + "..." if r.get("rea", {}).get("evidence_id") else "not inspected"))
+            evidence["api_har"] = r.get("har")
+        else:
+            add("API contract (Salesforce-shaped + BI)", False, str(r.get("error"))[:160], severity="low", warn=True)
+    return checks, evidence
+
+
+@playbook("cdo_data_audit", "Data audit", "cdo",
+          "Chief Data Officer: have Scribe sync and Prism load, then reconcile CRM, operations, the warehouse and "
+          "Finance; collect REA evidence on both databases and the API; self-heal drift; escalate the rest to the CEO.",
+          {"use_rea": {"type": "bool", "default": True}})
+def cdo_data_audit(ctx):
+    sync = ctx.child("crm_sync")
+    load = ctx.child("bi_nightly_load")
+    use_rea = ctx.p("use_rea", True)
+    checks, evidence = _audit_checks(bool(use_rea))
+    healed = []
+    if any(c["status"] == "fail" and (c["check"].startswith("Assets") or c["check"].startswith("Accounts")
+                                      or c["check"].startswith("Every ticket")) for c in checks):
+        ctx.log("drift found: re-syncing CRM and re-checking")
+        crm.sync()
+        bi.load()
+        before = {c["check"] for c in checks if c["status"] == "fail"}
+        checks, evidence = _audit_checks(False) if not use_rea else _audit_checks(True)
+        healed = sorted(before - {c["check"] for c in checks if c["status"] == "fail"})
+    n = len(checks)
+    passed = sum(c["status"] == "pass" for c in checks)
+    warns = sum(c["status"] == "warn" for c in checks)
+    score = round(100 * (passed + 0.5 * warns) / n, 1)
+    escalations = [c for c in checks if c["status"] == "fail"]
+    db.set_setting("data_quality", {"score": score, "date": products.today(), "fails": len(escalations), "warns": warns})
+    ctx.log(f"data quality {score}: {passed} pass, {warns} warn, {len(escalations)} fail")
+    md = (f"Data quality score **{score}** on {products.today()}: {passed} pass, {warns} warn, {len(escalations)} fail"
+          + (f"; self-healed: {', '.join(healed)}" if healed else "") + ".\n\n" +
+          f"Delegated: {sync['report']} (Scribe), {load['report']} (Prism).\n\n## Checks\n\n" +
+          table(checks, ["check", "status", "severity", "detail"]) +
+          ("\n## Escalated to the CEO\n\n" + table(escalations, ["check", "detail"]) if escalations else
+           "\nNothing to escalate: CRM, operations, warehouse and billing agree.\n") +
+          ("\n## REA evidence\n\n" + "".join(f"- {k}: `{v}`\n" for k, v in evidence.items()) if evidence else ""))
+    return {"score": score, "pass": passed, "warn": warns, "fail": len(escalations), "healed": healed,
+            "escalations": [e["check"] for e in escalations], "evidence": evidence}, md
+
+
+def _recommend(d):
+    det = d["detail"]
+    if d["kind"] == "build_hall":
+        metro = det["site"][:3]
+        kind = "ai_cabinets" if det.get("liquid") else "cabinets"
+        demand = 0.0
+        for w in db.rows("select params from orders where status='waitlisted' and kind=?", (kind,)):
+            pm = json.loads(w["params"])
+            if pm.get("metro") == metro:
+                demand += crm._order_mrr(kind, pm)
+        capex = det.get("capex_usd") or 0
+        payback = capex / demand if demand else None
+        if payback and payback <= 72:
+            return "approve", f"waitlisted demand worth ${demand:,.0f}/mo pays back ${capex:,.0f} in {payback:.0f} months"
+        return "hold", (f"waitlisted demand only ${demand:,.0f}/mo against ${capex:,.0f} capex" if demand
+                        else "no waitlisted demand behind it yet; the halls are tight on power but customers are not queuing")
+    if d["kind"] == "hire_techs":
+        site = det["site"]
+        s30 = next((s for s in bi.metric("sla_by_site", 30)["value"] if s["site"] == site), None)
+        at_risk = db.scalar("select coalesce(sum(o.MRR__c),0) from crm_opportunity o join crm_account a on a.Id=o.AccountId"
+                            " where o.Type='Renewal' and o.IsClosed=0 and exists (select 1 from crm_asset x where"
+                            " x.AccountId=a.Id and x.Location__c like ? and x.Status='Installed')", (site + "%",)) or 0
+        if s30 and s30["sla_pct"] < 93:
+            return "approve", (f"30-day SLA {s30['sla_pct']}% on {s30['tickets']} tickets, not a one-off; "
+                               f"${products.TECH_COST_MONTH:,.0f}/mo against ${at_risk:,.0f}/mo of renewals with gear on site")
+        return "hold", (f"7-day dip only; 30-day SLA is {s30['sla_pct'] if s30 else 'n/a'}%. Re-check next week before "
+                        f"adding ${products.TECH_COST_MONTH:,.0f}/mo")
+    if d["kind"] == "cooling_upgrade":
+        h = db.one("select crah_units, crah_down from halls where id=?", (det["hall"],))
+        if h and h["crah_down"] >= 1:
+            return "approve", f"{h['crah_down']} of {h['crah_units']} units still down; restores redundancy"
+        return "hold", "units were repaired since this was filed; redundancy is back without new capex"
+    if d["kind"] == "network_standard":
+        return "approve", f"research evidence: {det.get('evidence', '')}"
+    return "review", "no rule for this kind"
+
+
+@playbook("ceo_board_pack", "Board pack", "ceo",
+          "CEO: get the weekly review from the Chief Operator, the research memo from the Chief Scientist and the data "
+          "audit from the Chief Data Officer; check their numbers against the warehouse; recommend on every open "
+          "decision; deliver one board pack to the founder.")
+def ceo_board_pack(ctx):
+    atlas = ctx.child("exec_weekly_review")
+    euler = ctx.child("rnd_research_cycle")
+    vega = ctx.child("cdo_data_audit")
+    a, e, v = atlas["summary"] or {}, euler["summary"] or {}, vega["summary"] or {}
+    mrr = bi.metric("mrr")["value"] or 0
+    trend = bi.metric("mrr_trend", 30)["value"]
+    wk = [x for x in trend if x["x"] <= (products.today_d() - dt.timedelta(days=7)).isoformat()]
+    wk_mrr = wk[-1]["y"] if wk else None
+    head = [
+        {"metric": "MRR", "value": usd(mrr), "vs 7 days": (f"{100 * (mrr / wk_mrr - 1):+.2f}%" if wk_mrr else "n/a")},
+        {"metric": "Net retention (90d)", "value": f"{bi.metric('net_retention', 90)['value'] or 0}%", "vs 7 days": ""},
+        {"metric": "Win rate (30d)", "value": f"{bi.metric('win_rate', 30)['value'] or 0}%", "vs 7 days": ""},
+        {"metric": "Churned/downsized MRR (90d)", "value": usd(bi.metric('churned_mrr', 90)['value'] or 0), "vs 7 days": ""},
+        {"metric": "EBITDA margin", "value": f"{(a.get('ebitda_margin') or 0):.1%}", "vs 7 days": ""},
+        {"metric": "Data quality", "value": f"{v.get('score')}", "vs 7 days": ""},
+    ]
+    consistent = abs((a.get("mrr") or 0) - mrr) <= 1
+    risks = []
+    for o in db.rows("select o.Name, o.CloseDate, o.Probability, o.MRR__c from crm_opportunity o where o.Type='Renewal'"
+                     " and o.IsClosed=0 order by o.Probability asc, o.MRR__c desc limit 3"):
+        risks.append(f"Renewal at risk: {o['Name']} closes {o['CloseDate']}, {o['Probability']:.0f}% odds, {usd(o['MRR__c'])}/mo")
+    sla = [s for s in bi.metric("sla_by_site", 7)["value"] if s["sla_pct"] is not None and s["sla_pct"] < 92]
+    if sla:
+        risks.append("Remote-hands SLA below 92% at " + ", ".join(f"{s['site']} ({s['sla_pct']}%)" for s in sla[:5]))
+    wl = db.scalar("select count(*) from orders where status='waitlisted'")
+    if wl:
+        risks.append(f"{wl} orders waitlisted for capacity")
+    for x in v.get("escalations", []):
+        risks.append(f"Data escalation from Vega: {x}")
+    recs = []
+    for d in decisions("open"):
+        verdict, why = _recommend(d)
+        recs.append({"id": d["id"], "from": d["agent"], "decision": d["title"], "Helm recommends": verdict, "why": why})
+    ctx.log(f"board pack: {len(recs)} decisions, {len(risks)} risks, numbers consistent={consistent}")
+    md = (f"Week ending **{products.today()}** (simulated). Prepared by Helm (CEO) from the Chief Operator, Chief Scientist "
+          f"and Chief Data Officer. " + ("Atlas's figures tie to the warehouse." if consistent else
+                                         "**Atlas's MRR does not tie to the warehouse; Vega has been asked to explain.**") +
+          "\n\n## Headline\n\n" + table(head, ["metric", "value", "vs 7 days"]) +
+          f"\n## From the chiefs\n\n- **Atlas (operations):** {a.get('filed', 0)} decisions filed this review, "
+          f"{a.get('open_decisions', 0)} open. Report: {atlas['report']}\n"
+          f"- **Euler (research):** next AI halls in {', '.join(e.get('best_ai_metros') or []) or 'n/a'}; "
+          + (f"proposed network standard (decision #{e['proposal']})" if e.get("proposal") else "no new standard proposed")
+          + f". Report: {euler['report']}\n"
+          f"- **Vega (data):** quality {v.get('score')}, {v.get('fail', 0)} fail, {v.get('warn', 0)} warn"
+          + (f", self-healed {', '.join(v['healed'])}" if v.get("healed") else "") + f". Report: {vega['report']}\n"
+          "\n## Risks\n\n" + ("".join(f"- {r}\n" for r in risks) or "- None worth your time this week.\n") +
+          "\n## Decisions for you\n\n" + table(recs, ["id", "from", "decision", "Helm recommends", "why"]) +
+          "\nApprove or reject each one in HQ (Decisions) or ask Claude to call company_decide.\n")
+    return {"week_ending": products.today(), "mrr": mrr, "decisions": len(recs),
+            "recommend_approve": [r["id"] for r in recs if r["Helm recommends"] == "approve"],
+            "risks": len(risks), "data_quality": v.get("score"), "consistent": consistent}, md
+
+
 # ---------------------------------------------------------------- Chief Operator
 
 @playbook("exec_operating_cycle", "Operating cycle", "exec",
@@ -551,7 +818,8 @@ def rnd_research_cycle(ctx):
           {"days": {"type": "int", "default": 1}})
 def exec_operating_cycle(ctx):
     steps = ["sales_demand_cycle", "ops_fulfill_space", "ix_fulfill_orders", "digital_fulfill_orders",
-             "metal_fulfill_orders", "cx_ticket_desk", "accounts_renewals", "ops_daily_health", "energy_report"]
+             "metal_fulfill_orders", "cx_ticket_desk", "accounts_renewals", "ops_daily_health", "energy_report",
+             "crm_sync", "bi_nightly_load"]
     days = max(1, min(365, ctx.p("days", 1, int)))
     if days == 1:
         day = products.advance(1)

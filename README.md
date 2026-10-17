@@ -4,15 +4,33 @@ A headless digital-infrastructure company that exists entirely in simulation:
 colocation sites in 8 metros (air halls and liquid-cooled AI halls), cross-connects,
 a fabric of virtual circuits, private cloud on-ramps and a cloud router, Network Edge
 virtual devices, internet exchange ports, bare metal, remote hands, contracts with
-renewals and churn, energy, finance, and an R&D lab that designs network gear. Agents run every department; two super agents run the agents;
-the founder approves decisions. Claude operates it from chat over MCP.
+renewals and churn, energy, finance, an R&D lab that designs network gear, and a
+headless data stack: a Salesforce-shaped CRM and a Tableau-style BI layer. Agents run
+every department, chiefs run the agents, a CEO agent reports to the founder, and
+Claude operates it from chat over MCP.
 
 Every site, tenant and number is simulated and seeded. No real company is modeled.
+
+## Chain of command
+
+```
+Founder (you)
+└── Helm, CEO: ceo_board_pack (weekly board pack with a recommendation on every decision)
+    ├── Atlas, Chief Operator: operations departments
+    ├── Euler, Chief Scientist: R&D and Network Engineering
+    └── Vega, Chief Data Officer: cdo_data_audit (reconciliation + REA evidence)
+        ├── Scribe, CRM Operations: crm_sync
+        └── Prism, Business Intelligence: bi_nightly_load, bi_export
+```
 
 ## Org chart
 
 | Tier | Department | Agent | Playbooks |
 |---|---|---|---|
+| Chief | Office of the CEO | **Helm** | `ceo_board_pack` |
+| Super | Office of the Chief Data Officer | **Vega** | `cdo_data_audit` |
+| Dept | CRM Operations | Scribe | `crm_sync` |
+| Dept | Business Intelligence | Prism | `bi_nightly_load`, `bi_export` |
 | Super | Office of the Chief Operator | **Atlas** | `exec_operating_cycle {days}` (one simulated day, or fast-forward up to 365), `exec_weekly_review` (files decisions) |
 | Super | Research & Development (Chief Scientist) | **Euler** | `rnd_research_cycle` (delegates studies, proposes standards), `rnd_router_study`, `rnd_cooling_study` |
 | Dept | Sales & Customers | Broker | `sales_demand_cycle` |
@@ -29,6 +47,37 @@ Every site, tenant and number is simulated and seeded. No real company is modele
 Super agents delegate: their runs start child runs in the departments and write a
 summary that links each child report. Irreversible changes (a new hall, a network
 standard, extra cooling) become **decisions** the founder approves in HQ or from chat.
+
+## Headless CRM (Salesforce-shaped)
+
+Accounts, Contacts, Opportunities, Cases, Assets and Contracts with Salesforce's field
+names and key prefixes (001 Account, 006 Opportunity, 500 Case...). Sales and renewals
+run through Opportunities: new business is won or lost at its close date and a win
+places the order; every contract gets a Renewal opportunity 90 days out. Scribe syncs
+assets and cases from operations every simulated day.
+
+```
+GET /services/data/v60.0/sobjects
+GET /services/data/v60.0/sobjects/Account/describe
+GET /services/data/v60.0/query?q=SELECT Name, MRR__c FROM Account ORDER BY MRR__c DESC LIMIT 5
+```
+
+## Headless BI (Tableau-style)
+
+Prism loads each simulated day into a separate warehouse (`data/warehouse.db`): revenue,
+operations, tickets, pipeline, bookings, contract events, energy. One metrics layer
+(`/api/bi/metrics`) feeds every dashboard; HQ's Insights tab renders them. `bi_export`
+writes CSV plus a `.hyper` extract that Tableau Desktop or Tableau Public opens directly.
+
+## REA (Reverse Engineer Anything)
+
+The armory runs [REA](https://github.com/morluto/rea) locally through npx:
+`rea_inspect_db` (REA's SQLite inspector on snapshots of the CRM and warehouse, giving
+content-hashed schema evidence), `api_contract_check` (records a HAR of vix's own
+Salesforce-shaped and BI APIs, validates the contract, and has REA inspect it) and
+`public_recon` (public pages only, never sign-in pages, for design reference). REA's
+SQLite inspector needs Node 24.15+, so the armory pins Node 24 via npx; override with
+`VIX_REA_CMD`. Vega's weekly audit includes this evidence.
 
 ## Calendar
 
@@ -57,7 +106,13 @@ remote-hands SLAs and retention all run on this calendar.
   and fall with SLA misses and steep escalators; losses are downsizes or full exits.
 - **Latency**: great-circle distance x 1.45 route factor at 200 km/ms.
 
-## Upgrading from v0.1
+## Upgrading
+
+Run the new `install.sh` over the old install. v0.2 to v0.3 creates the CRM from your
+current world (accounts, contacts, contracts, assets, cases), loads the warehouse, and
+adds the weekly data audit and board pack schedules.
+
+### From v0.1
 
 Run the new `install.sh` over the old install. The database is migrated in place
 (new tables and columns) and the new product lines are seeded around your existing

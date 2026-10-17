@@ -5,9 +5,9 @@ import threading
 from contextlib import asynccontextmanager
 
 from fastapi import Body, FastAPI, HTTPException
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
-from . import __version__, db, products, world
+from . import __version__, armory, bi, crm, db, products, world
 from .company import charter as charter_mod
 from .company import engine
 from .config import STATIC_DIR
@@ -18,6 +18,7 @@ async def lifespan(_app):
     db.init()
     world.seed()
     engine.seed_schedules()
+    engine.seed_v3_schedules()
     stop = threading.Event()
     t = threading.Thread(target=engine.scheduler_loop, args=(stop,), daemon=True)
     t.start()
@@ -189,3 +190,112 @@ def orders(status: str | None = None, limit: int = 100):
 @app.post("/api/world/orders")
 def order(body: dict = Body(...)):
     return _guard(world.place_order, int(body.get("tenant", 0)), body.get("kind", ""), body.get("params") or {})
+
+
+# ---------- CRM: Salesforce-shaped REST ----------
+
+SF = f"/services/data/{crm.API_VERSION}"
+
+
+def _sf_error(msg, code="MALFORMED_QUERY", status=400):
+    return JSONResponse([{"message": msg, "errorCode": code}], status_code=status)
+
+
+@app.get("/services/data")
+def sf_versions():
+    return [{"label": "vix CRM", "url": SF, "version": crm.API_VERSION[1:]}]
+
+
+@app.get(SF)
+def sf_resources():
+    return {"sobjects": f"{SF}/sobjects", "query": f"{SF}/query"}
+
+
+@app.get(SF + "/sobjects")
+def sf_sobjects():
+    return {"encoding": "UTF-8", "sobjects": [{"name": o, "label": crm.LABELS[o], "keyPrefix": crm.PREFIX[o],
+                                                "queryable": True, "urls": {"sobject": f"{SF}/sobjects/{o}",
+                                                                             "describe": f"{SF}/sobjects/{o}/describe"}}
+                                               for o in crm.OBJECTS]}
+
+
+@app.get(SF + "/sobjects/{obj}/describe")
+def sf_describe(obj: str):
+    try:
+        return crm.describe(obj)
+    except ValueError as e:
+        return _sf_error(str(e), "NOT_FOUND", 404)
+
+
+@app.get(SF + "/sobjects/{obj}/{rid}")
+def sf_get(obj: str, rid: str):
+    try:
+        r = crm.get(obj, rid)
+    except ValueError as e:
+        return _sf_error(str(e), "NOT_FOUND", 404)
+    return r if r else _sf_error(f"no {obj} {rid}", "NOT_FOUND", 404)
+
+
+@app.get(SF + "/query")
+def sf_query(q: str):
+    try:
+        return crm.query(q)
+    except ValueError as e:
+        return _sf_error(str(e))
+
+
+@app.get("/api/crm/summary")
+def crm_summary():
+    return crm.summary()
+
+
+# ---------- BI ----------
+
+@app.get("/api/bi/status")
+def bi_status():
+    return bi.status()
+
+
+@app.get("/api/bi/metrics")
+def bi_metrics():
+    return bi.metrics_catalog()
+
+
+@app.get("/api/bi/metric/{name}")
+def bi_metric(name: str, days: int = 90):
+    return _guard(bi.metric, name, days)
+
+
+@app.get("/api/bi/dashboards")
+def bi_dashboards():
+    return {k: {"title": v["title"], "tiles": len(v["tiles"])} for k, v in bi.dashboards().items()}
+
+
+@app.get("/api/bi/dashboard/{slug}")
+def bi_dashboard(slug: str, days: int = 90):
+    return _guard(bi.dashboard, slug, days)
+
+
+@app.get("/api/bi/exports")
+def bi_exports():
+    return bi.exports()
+
+
+@app.get("/api/bi/exports/{date}/{name}")
+def bi_export_file(date: str, name: str):
+    p = (bi.EXPORT_DIR / date / name).resolve()
+    if bi.EXPORT_DIR.resolve() not in p.parents or not p.exists():
+        raise HTTPException(404, "no such export file")
+    return FileResponse(p, filename=name)
+
+
+# ---------- armory ----------
+
+@app.get("/api/armory")
+def armory_tools():
+    return armory.tools()
+
+
+@app.get("/api/org")
+def org():
+    return engine.org_chart()

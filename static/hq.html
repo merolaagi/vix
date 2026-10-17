@@ -57,6 +57,12 @@ th{color:var(--dim);font-weight:500;font-size:12px}td.n{font-family:var(--mono);
 .note{color:var(--dim);font-size:12px}
 .dec{display:flex;gap:12px;justify-content:space-between;align-items:flex-start}
 .heat td{font:12px var(--mono);text-align:center}
+.org ul{list-style:none;margin:0;padding-left:18px;border-left:1px dashed var(--line)}.org>ul{padding-left:0;border:0}
+.org li{margin:4px 0}.org .who{font:600 12px var(--mono);color:var(--accent)}.org .who.chief{color:var(--amber)}.org .who.super{color:var(--violet)}
+.dash{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-top:8px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;min-width:0}.tile.wide{grid-column:1/-1}
+.tile .t{color:var(--dim);font-size:12px;margin-bottom:6px}.tile .big{font:600 26px var(--mono)}
+.tile svg{width:100%;height:150px;display:block}.tile svg text{fill:var(--dim);font:10px var(--mono)}
 .toast{position:fixed;bottom:16px;right:16px;background:var(--panel2);border:1px solid var(--accent);padding:10px 14px;border-radius:8px;display:none;max-width:360px;z-index:9}
 @media(max-width:800px){.split{grid-template-columns:1fr}main{padding:12px}}
 </style>
@@ -65,7 +71,7 @@ th{color:var(--dim);font-weight:500;font-size:12px}td.n{font-family:var(--mono);
 <header>
   <div><div class="brand"><b>vix</b> HQ</div><div class="tag" id="tagline">Virtual Interconnection eXchange · simulated</div></div>
   <nav>
-    <button data-t="overview" class="on">Overview</button><button data-t="world">World</button><button data-t="business">Business</button>
+    <button data-t="overview" class="on">Overview</button><button data-t="world">World</button><button data-t="business">Business</button><button data-t="insights">Insights</button><button data-t="crm">CRM</button>
     <button data-t="decisions">Decisions <span id="dcount"></span></button><button data-t="reports">Reports</button>
     <button data-t="schedules">Schedules</button>
   </nav>
@@ -73,7 +79,8 @@ th{color:var(--dim);font-weight:500;font-size:12px}td.n{font-family:var(--mono);
 <main>
   <section class="tab on" id="overview">
     <div class="kpis" id="kpis"></div>
-    <h2>Super agents</h2><div class="grid" id="supers"></div>
+    <h2>Chain of command</h2><div class="card org" id="org"></div>
+    <h2>Leadership</h2><div class="grid" id="supers"></div>
     <h2>Departments</h2><div class="grid" id="depts"></div>
     <h2>Recent runs</h2><div class="tw"><table id="runs"></table></div>
   </section>
@@ -97,6 +104,28 @@ th{color:var(--dim);font-weight:500;font-size:12px}td.n{font-family:var(--mono);
       <div><h2>Recent contract events</h2><div class="tw"><table id="events"></table></div></div>
     </div>
   </section>
+  <section class="tab" id="insights">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:14px" id="dashpick"></div>
+    <p class="note" id="dashnote"></p>
+    <div class="dash" id="dash"></div>
+    <h2>Tableau-ready exports</h2><div class="tw"><table id="exports"></table></div>
+    <p class="note">Run <b>Tableau export</b> (Business Intelligence) to write a new one. Open the .hyper file in Tableau Desktop or Tableau Public.</p>
+  </section>
+  <section class="tab" id="crm">
+    <div class="kpis" id="crmk" style="margin-top:14px"></div>
+    <h2>Open pipeline</h2><div class="tw"><table id="pipe"></table></div>
+    <h2>SOQL console</h2>
+    <div class="card"><div style="display:flex;gap:6px;flex-wrap:wrap">
+      <input id="soql" style="flex:1;min-width:260px" value="SELECT Name, StageName, MRR__c, CloseDate FROM Opportunity WHERE IsClosed = false ORDER BY MRR__c DESC LIMIT 15">
+      <button class="b go" id="runq">Run</button></div>
+      <div class="note" style="margin-top:6px">Samples: <a href="#" data-q="SELECT Name, Type, Industry, MRR__c FROM Account ORDER BY MRR__c DESC LIMIT 10">top accounts</a> ·
+      <a href="#" data-q="SELECT Subject, Priority, Site__c, SLA_Met__c, CreatedDate FROM Case WHERE SLA_Met__c = false ORDER BY CreatedDate DESC LIMIT 15">missed SLAs</a> ·
+      <a href="#" data-q="SELECT Name, ProductCode, Location__c, Quantity FROM Asset WHERE ProductCode = 'AI-COLO' AND Status = 'Installed'">AI colocation assets</a> ·
+      <a href="#" data-q="SELECT Name, StageName, Probability, MRR__c, CloseDate FROM Opportunity WHERE Type = 'Renewal' AND IsClosed = false ORDER BY Probability ASC LIMIT 15">renewals</a> ·
+      <a href="#" data-q="SELECT COUNT() FROM Case">count cases</a></div>
+      <p class="note" id="qnote"></p><div class="tw"><table id="qres"></table></div>
+      <p class="note">Same API Salesforce clients use: <code>GET /services/data/v60.0/query?q=…</code></p></div>
+  </section>
   <section class="tab" id="decisions"><h2>Decisions filed by the super agents</h2><div id="declist"></div></section>
   <section class="tab" id="reports"><div class="split"><div class="list" id="replist"></div><div class="md" id="repview"><p class="note">Pick a report.</p></div></div></section>
   <section class="tab" id="schedules">
@@ -112,7 +141,7 @@ th{color:var(--dim);font-weight:500;font-size:12px}td.n{font-family:var(--mono);
 <div class="toast" id="toast"></div>
 <script>
 const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const api=async(p,o={})=>{const r=await fetch(p,{headers:{'content-type':'application/json'},...o});if(!r.ok)throw new Error((await r.json().catch(()=>({detail:r.statusText}))).detail);return r.headers.get('content-type')?.includes('json')?r.json():r.text()};
+const api=async(p,o={})=>{const r=await fetch(p,{headers:{'content-type':'application/json'},...o});if(!r.ok){const j=await r.json().catch(()=>({detail:r.statusText}));throw new Error(j.detail||(Array.isArray(j)&&j[0]&&j[0].message)||r.statusText)}return r.headers.get('content-type')?.includes('json')?r.json():r.text()};
 const money=v=>v==null?'–':'$'+(v>=1e6?(v/1e6).toFixed(2)+'M':Math.round(v).toLocaleString());
 const pct=v=>v==null?'–':(v*100).toFixed(1)+'%';
 const ago=t=>{if(!t)return'';const s=Date.now()/1000-t;return s<90?Math.round(s)+'s ago':s<5400?Math.round(s/60)+'m ago':s<172800?Math.round(s/3600)+'h ago':Math.round(s/86400)+'d ago'};
@@ -131,7 +160,7 @@ function pbHtml(p){
 
 function deptHtml(d){
   const lr=d.last_run;
-  return `<div class="card ${d.tier==='super'?'super':''}"><div class="agent">${d.tier==='super'?'SUPER AGENT · ':''}${esc(d.agent)}</div><h3>${esc(d.name)}</h3>
+  return `<div class="card ${d.tier!=='department'?'super':''}"><div class="agent">${d.tier==='chief'?'CEO · ':d.tier==='super'?'SUPER AGENT · ':''}${esc(d.agent)}</div><h3>${esc(d.name)}</h3>
   <div class="mission">${esc(d.mission)}</div>
   <div class="note">${d.runs_total} runs${lr?` · last <span class="st ${lr.status}">${lr.status}</span> ${ago(lr.started)} ${lr.report?`· <a href="#" data-rep="${lr.report}">report</a>`:''}`:''}</div>
   ${d.playbooks.map(pbHtml).join('')}</div>`}
@@ -145,11 +174,13 @@ async function overview(){
    ['Virtual circuits',k.virtual_circuits],['Waitlisted',k.orders_waitlisted],['Open decisions',k.open_decisions],['Runs 7d',k.runs_7d+(k.failed_7d?` (${k.failed_7d} failed)`:'')],
    ['AI load',k.ai_it_mw+' MW'],['Cloud connections',k.cloud_connections],['Edge devices',k.edge_devices],['IX members',k.ix_members],
    ['Remote-hands SLA 30d',k.remote_hands_sla_30d==null?'–':k.remote_hands_sla_30d+'%'],['Net retention 90d',k.net_retention_90d==null?'–':pct(k.net_retention_90d)],
-   ['Active customers',k.active_customers],
+   ['Active customers',k.active_customers],['Data quality',k.data_quality_score??'–'],['Open pipeline',money(k.crm_open_pipeline_mrr)+'/mo'],
    ['Route filtering',(k.network_standard.rs_filtering?'RS ':'')+(k.network_standard.edge_filtering?'edge':'')||'off']];
   $('#kpis').innerHTML=tiles.map(([l,v])=>`<div class="kpi"><div class="v">${esc(v)}</div><div class="l">${l}</div></div>`).join('');
-  $('#supers').innerHTML=o.departments.filter(d=>d.tier==='super').map(deptHtml).join('');
-  $('#depts').innerHTML=o.departments.filter(d=>d.tier!=='super').map(deptHtml).join('');
+  $('#supers').innerHTML=o.departments.filter(d=>d.tier==='super'||d.tier==='chief').map(deptHtml).join('');
+  $('#depts').innerHTML=o.departments.filter(d=>d.tier==='department').map(deptHtml).join('');
+  const tree=n=>`<li><span class="who ${n.tier}">${esc(n.agent)}</span> · ${esc(n.name)}${n.reports&&n.reports.length?`<ul>${n.reports.map(tree).join('')}</ul>`:''}</li>`;
+  $('#org').innerHTML=`<ul>${tree(o.org_chart)}</ul>`;
   const runs=await api('/api/company/runs?limit=25');
   $('#runs').innerHTML='<tr><th>#</th><th>Playbook</th><th>Dept</th><th>Status</th><th>Trigger</th><th>Started</th><th>Report</th></tr>'+
    runs.map(r=>`<tr><td class="n">${r.id}</td><td>${r.parent?'↳ ':''}${esc(r.playbook)}</td><td>${r.department}</td><td><span class="st ${r.status}">${r.status}</span></td><td class="note">${esc(r.trigger)}</td><td class="note">${ago(r.started)}</td><td>${r.report?`<a href="#" data-rep="${r.report}">open</a>`:''}</td></tr>`).join('');
@@ -236,7 +267,55 @@ async function businessTab(){
   $('#risk').innerHTML='<tr><th>Customer</th><th>Ends</th><th>Renew odds</th><th>MRR</th><th>X-conn</th><th>SLA misses</th></tr>'+(a.at_risk.map(x=>`<tr><td>${esc(x.name)}</td><td class="note">${x.end_date}</td><td class="n" style="color:${x.p_renew<.85?'var(--amber)':'inherit'}">${pct(x.p_renew)}</td><td class="n">${money(x.mrr)}</td><td class="n">${x.cross_connects}</td><td class="n">${x.sla_misses_90d}</td></tr>`).join('')||'<tr><td class="note">none</td></tr>');
   $('#events').innerHTML='<tr><th>Date</th><th>Customer</th><th>Event</th><th>MRR before → after</th></tr>'+(a.recent_events.map(e=>`<tr><td class="note">${e.sim_date}</td><td>${esc(e.name)}</td><td><span class="st ${e.event==='renewed'?'done':e.event==='churned'?'failed':'running'}">${e.event}</span></td><td class="n">${money(e.mrr_before)} → ${money(e.mrr_after)}</td></tr>`).join('')||'<tr><td class="note">None yet: run the operating cycle to move the calendar.</td></tr>');
 }
-function load(t){({overview,world:worldTab,business:businessTab,decisions:decisionsTab,reports,schedules:schedTab})[t]().catch(e=>toast(e.message))}
+const fmtv=(v,u)=>v==null?'–':u==='usd'?money(v):u==='pct'?v+'%':u==='mw'?v+' MW':typeof v==='number'?v.toLocaleString():v;
+function lineSvg(pts,unit){
+  if(!pts.length)return '<p class="note">No data yet: the warehouse fills as days are loaded.</p>';
+  const W=320,H=130,ys=pts.map(p=>p.y),mn=Math.min(...ys),mx=Math.max(...ys),r=(mx-mn)||1;
+  const X=i=>W*(pts.length===1?0.5:i/(pts.length-1)),Y=v=>H-6-(H-12)*((v-mn)/r);
+  const d=pts.map((p,i)=>`${i?'L':'M'}${X(i).toFixed(1)},${Y(p.y).toFixed(1)}`).join('');
+  return `<div class="note" style="display:flex;justify-content:space-between"><span>max ${fmtv(mx,unit)}</span><span>min ${fmtv(mn,unit)}</span></div>
+  <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:130px"><path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>
+  <div class="note" style="display:flex;justify-content:space-between"><span>${pts[0].x}</span><span>${pts[pts.length-1].x}</span></div>`}
+function barHtml(rows,unit){
+  if(!rows.length)return '<p class="note">No data yet.</p>';
+  const keys=Object.keys(rows[0]),lab=keys.find(k=>typeof rows[0][k]==='string')||keys[0],val=keys.find(k=>typeof rows[0][k]==='number'&&k!==lab);
+  const mx=Math.max(...rows.map(r=>r[val]||0))||1;
+  return '<table>'+rows.slice(0,12).map(r=>`<tr><td>${esc(String(r[lab]).replace(/_/g,' '))}</td><td class="n">${fmtv(r[val],unit)}</td><td style="width:45%"><div class="bar"><i style="width:${(r[val]||0)/mx*100}%"></i></div></td></tr>`).join('')+'</table>'}
+function tblHtml(rows){if(!rows.length)return '<p class="note">No data yet.</p>';const ks=Object.keys(rows[0]);
+  return '<div class="tw"><table><tr>'+ks.map(k=>`<th>${k}</th>`).join('')+'</tr>'+rows.map(r=>'<tr>'+ks.map(k=>`<td class="${typeof r[k]==='number'?'n':''}">${typeof r[k]==='number'?r[k].toLocaleString():esc(r[k])}</td>`).join('')+'</tr>').join('')+'</table></div>'}
+let curDash='executive';
+async function insightsTab(){
+  const ds=await api('/api/bi/dashboards');
+  $('#dashpick').innerHTML=Object.entries(ds).map(([k,v])=>`<button class="b ${k===curDash?'go':''}" data-dash="${k}">${esc(v.title)}</button>`).join('')+
+    ` <select id="dashdays"><option value="30">30 days</option><option value="90" selected>90 days</option><option value="365">365 days</option></select>`;
+  document.querySelectorAll('[data-dash]').forEach(b=>b.onclick=()=>{curDash=b.dataset.dash;insightsTab()});
+  $('#dashdays').onchange=renderDash;await renderDash();
+  const ex=await api('/api/bi/exports');
+  $('#exports').innerHTML='<tr><th>Sim date</th><th>Files</th></tr>'+(ex.map(e=>`<tr><td>${e.date}</td><td>${e.files.map(f=>`<a href="/api/bi/exports/${e.date}/${f}">${f}</a>`).join(' · ')}</td></tr>`).join('')||'<tr><td class="note" colspan="2">No exports yet.</td></tr>')}
+async function renderDash(){
+  const d=await api(`/api/bi/dashboard/${curDash}?days=${$('#dashdays').value}`);
+  $('#dashnote').textContent=`${d.title} · owner ${d.owner||'Prism'} · warehouse as of ${d.tiles[0]?.data.as_of||'–'}`;
+  $('#dash').innerHTML=d.tiles.map(t=>{const m=t.data,v=m.value;let body='';
+    if(t.chart==='kpi')body=`<div class="big">${fmtv(v,m.unit)}</div>`;
+    else if(t.chart==='line')body=lineSvg(v||[],m.unit);
+    else if(t.chart==='bar')body=barHtml(v||[],m.unit);
+    else body=tblHtml(v||[]);
+    return `<div class="tile ${t.wide?'wide':''}"><div class="t">${esc(m.title)}${t.chart!=='kpi'?'':' · '+m.days+'d'}</div>${body}</div>`}).join('')}
+async function crmTab(){
+  const s=await api('/api/crm/summary');
+  const acc=Object.fromEntries(s.accounts.map(a=>[a.Type,a.n]));const won=s.closed_90d.find(x=>x.StageName==='Closed Won')||{},lost=s.closed_90d.find(x=>x.StageName==='Closed Lost')||{};
+  $('#crmk').innerHTML=[['Customers',acc['Customer']||0],['Former customers',acc['Former Customer']||0],['Contacts',s.contacts],['Cases',s.cases.toLocaleString()],
+    ['Won 90d',`${won.n||0} · ${money(won.mrr||0)}`],['Lost 90d',`${lost.n||0} · ${money(lost.mrr||0)}`],['Last sync',s.last_sync||'–']].map(([l,v])=>`<div class="kpi"><div class="v" style="font-size:16px">${esc(v)}</div><div class="l">${l}</div></div>`).join('');
+  $('#pipe').innerHTML='<tr><th>Type</th><th>Stage</th><th>Opps</th><th>MRR</th></tr>'+s.open_pipeline.map(p=>`<tr><td>${p.Type}</td><td>${p.StageName}</td><td class="n">${p.n}</td><td class="n">${money(p.mrr)}</td></tr>`).join('');
+  runSoql()}
+async function runSoql(){
+  try{const r=await api('/services/data/v60.0/query?q='+encodeURIComponent($('#soql').value));
+    $('#qnote').textContent=`${r.totalSize} records${r.done?'':' (first '+r.records.length+' shown)'}`;
+    $('#qres').innerHTML=r.records.length?'<tr>'+Object.keys(r.records[0]).filter(k=>k!=='attributes').map(k=>`<th>${k}</th>`).join('')+'</tr>'+r.records.map(x=>'<tr>'+Object.entries(x).filter(([k])=>k!=='attributes').map(([,v])=>`<td>${esc(v)}</td>`).join('')+'</tr>').join(''):''}
+  catch(e){$('#qnote').textContent='Error: '+e.message;$('#qres').innerHTML=''}}
+$('#runq').onclick=runSoql;$('#soql').onkeydown=e=>{if(e.key==='Enter')runSoql()};
+document.querySelectorAll('[data-q]').forEach(a=>a.onclick=e=>{e.preventDefault();$('#soql').value=a.dataset.q;runSoql()});
+function load(t){({overview,world:worldTab,business:businessTab,insights:insightsTab,crm:crmTab,decisions:decisionsTab,reports,schedules:schedTab})[t]().catch(e=>toast(e.message))}
 overview().catch(e=>toast(e.message));setInterval(()=>{if($('#overview').classList.contains('on'))overview().catch(()=>{})},20000);
 </script>
 </body>

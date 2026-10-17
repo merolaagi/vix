@@ -12,7 +12,7 @@ import time
 
 from mcp.server.mcpserver import MCPServer
 
-from . import __version__, db, netsim, products, routerlab, thermal, world
+from . import __version__, armory, bi, crm, db, netsim, products, routerlab, thermal, world
 from .company import charter as charter_mod
 from .company import engine
 from .config import MCP_PORT
@@ -24,9 +24,11 @@ mcp = MCPServer(
         "vix is a headless, fully simulated digital-infrastructure company in 8 metros: colocation (air and "
         "liquid-cooled AI halls), cross-connects, fabric virtual circuits, cloud on-ramps and a cloud router, "
         "Network Edge virtual devices, internet exchange ports, bare metal, remote hands, and contracts with "
-        "renewals and churn. Start with company_overview. Two super agents run it: Atlas (Chief Operator: "
-        "exec_operating_cycle {days} advances the simulated calendar, exec_weekly_review files decisions) and "
-        "Euler (Chief Scientist: rnd_research_cycle). company_run returns a run id; poll company_run_status, "
+        "renewals and churn, a headless CRM (Salesforce-shaped objects; crm_query takes SOQL) and headless BI "
+        "(warehouse, metrics, dashboards, Tableau .hyper export). Start with company_overview; org_chart shows the "
+        "chain of command: founder <- Helm (CEO, ceo_board_pack) <- Atlas (Chief Operator: exec_operating_cycle "
+        "{days} advances the simulated calendar, exec_weekly_review), Euler (Chief Scientist: rnd_research_cycle) and "
+        "Vega (Chief Data Officer: cdo_data_audit, with REA evidence). company_run returns a run id; poll company_run_status, "
         "then read company_report. Only call company_decide when the founder explicitly says to approve or "
         "reject. world_* tools read the simulated world; world_products summarises the product lines; "
         "accounts_at_risk lists renewals coming up. place_order adds demand. sim_bgp, sim_drill and sim_router "
@@ -56,7 +58,8 @@ def company_run(playbook: str, params: dict | None = None) -> dict:
     ops_incident_drill {hall, kind: cooling|utility|fiber, units_lost, repair_min},
     net_bgp_study {metro, event: baseline|withdraw|leak|hijack|fiber_cut, rs_filtering, edge_filtering},
     net_latency_map, energy_report, fin_monthly_close,
-    rnd_router_study {link_gbps, rtt_ms, flows, ports, design_load}."""
+    rnd_router_study {link_gbps, rtt_ms, flows, ports, design_load}.
+    Data and leadership: crm_sync, bi_nightly_load, bi_export, cdo_data_audit {use_rea}, ceo_board_pack."""
     return {"run_id": engine.start(playbook, params or {}, trigger="mcp"),
             "next": "poll company_run_status(run_id); when done, company_report(report)"}
 
@@ -238,6 +241,84 @@ async def sim_router(link_gbps: float = 100, rtt_ms: float = 10, flows: int = 40
     plus a sized switch design. Open-loop traffic; see the caveat in the result."""
     return await asyncio.to_thread(routerlab.study, link_gbps, rtt_ms, flows, 32, loads, 200_000, 0.001,
                                    ports, design_load)
+
+
+# ---------- CRM, BI, armory, leadership ----------
+
+@mcp.tool()
+def org_chart() -> dict:
+    """Chain of command: founder -> CEO (Helm) -> chiefs (Atlas, Euler, Vega) -> departments and their agents."""
+    return engine.org_chart()
+
+
+@mcp.tool()
+def crm_query(soql: str) -> dict:
+    """Query the headless CRM with SOQL: SELECT f1, f2 (or COUNT()) FROM Account|Contact|Opportunity|Case|Asset|Contract
+    [WHERE f op value AND ...] [ORDER BY f ASC|DESC] [LIMIT n]. Operators = != < <= > >= LIKE IN ('a','b').
+    Example: SELECT Name, StageName, MRR__c, CloseDate FROM Opportunity WHERE IsClosed = false ORDER BY MRR__c DESC LIMIT 10"""
+    return crm.query(soql, max_rows=500)
+
+
+@mcp.tool()
+def crm_describe(sobject: str) -> dict:
+    """Fields of one CRM object (Account, Contact, Opportunity, Case, Asset, Contract)."""
+    return crm.describe(sobject)
+
+
+@mcp.tool()
+def crm_record(sobject: str, record_id: str) -> dict:
+    """One CRM record by Id (e.g. Account 001000000000052)."""
+    return crm.get(sobject, record_id) or {"error": f"no {sobject} {record_id}"}
+
+
+@mcp.tool()
+def crm_summary() -> dict:
+    """CRM at a glance: accounts by type, open pipeline by stage, recent wins/losses, assets, cases, last sync."""
+    return crm.summary()
+
+
+@mcp.tool()
+def bi_metrics() -> list[dict]:
+    """The metrics layer: every named metric with its title, unit and kind (scalar, series, table)."""
+    return bi.metrics_catalog()
+
+
+@mcp.tool()
+def bi_metric(name: str, days: int = 90) -> dict:
+    """Evaluate one named metric over the last `days` simulated days, from the warehouse."""
+    return bi.metric(name, days)
+
+
+@mcp.tool()
+def bi_dashboard(slug: str = "executive", days: int = 90) -> dict:
+    """A dashboard with every tile's data resolved: executive, sales, operations, or any saved one."""
+    return bi.dashboard(slug, days)
+
+
+@mcp.tool()
+def bi_save_dashboard(slug: str, title: str, tiles: list[dict]) -> dict:
+    """Save a dashboard spec. tiles: [{metric, chart: kpi|line|bar|table, days?, wide?}] using metrics from bi_metrics."""
+    return bi.save_dashboard(slug, {"title": title, "owner": "Claude", "tiles": tiles})
+
+
+@mcp.tool()
+def armory_list() -> list[dict]:
+    """Armory tools (REA-backed evidence): rea_doctor, rea_inspect_db, api_contract_check, public_recon."""
+    return armory.tools()
+
+
+@mcp.tool()
+async def armory_run(tool: str, args: dict | None = None) -> dict:
+    """Run an armory tool, e.g. armory_run('rea_inspect_db', {'db': 'crm'}) or
+    armory_run('public_recon', {'url': 'https://developer.salesforce.com/docs/apis'}). Public pages only."""
+    return await asyncio.to_thread(armory.run, tool, args or {})
+
+
+@mcp.tool()
+def board_pack_latest() -> str:
+    """The latest CEO board pack (markdown), or a note to run ceo_board_pack."""
+    r = db.one("select report from runs where playbook='ceo_board_pack' and status='done' order by id desc limit 1")
+    return engine.safe_report(r["report"]).read_text() if r else "No board pack yet: company_run('ceo_board_pack')."
 
 
 class _TokenGate:

@@ -15,11 +15,20 @@ from ..config import REPORT_DIR
 from . import charter as charter_mod
 
 DEPARTMENTS = [
-    {"id": "exec", "name": "Office of the Chief Operator", "agent": "Atlas", "tier": "super",
+    {"id": "ceo", "name": "Office of the CEO", "agent": "Helm", "tier": "chief", "reports_to": "founder",
+     "mission": "Run the company for the founder: pull reports from the Chief Operator, Chief Scientist and Chief "
+                "Data Officer, check them against each other, and deliver a weekly board pack with a recommendation "
+                "on every decision that needs the founder.",
+     "kpis": ["board packs", "decisions recommended"]},
+    {"id": "cdo", "name": "Office of the Chief Data Officer", "agent": "Vega", "tier": "super", "reports_to": "ceo",
+     "mission": "Own the company's data: the CRM, the warehouse and the dashboards. Audit that CRM, operations, BI and "
+                "Finance agree, verify with REA evidence, self-heal drift, and escalate what can't be fixed.",
+     "kpis": ["data quality score", "open findings"]},
+    {"id": "exec", "name": "Office of the Chief Operator", "agent": "Atlas", "tier": "super", "reports_to": "ceo",
      "mission": "Run the business: drive the operating cycle across the departments on the simulated "
                 "calendar, review KPIs weekly and file decisions (new air or AI halls, cooling, staffing) for the founder.",
      "kpis": ["decisions filed", "operating cycles"]},
-    {"id": "rnd", "name": "Research & Development", "agent": "Euler", "tier": "super",
+    {"id": "rnd", "name": "Research & Development", "agent": "Euler", "tier": "super", "reports_to": "ceo",
      "mission": "Chief Scientist: design and test network gear and standards in simulation, delegate studies "
                 "to Network Engineering, and propose standards when the evidence is strong.",
      "kpis": ["studies run", "standards proposed"]},
@@ -47,6 +56,12 @@ DEPARTMENTS = [
     {"id": "accounts", "name": "Account Management", "agent": "Keeper", "tier": "department",
      "mission": "Renew contracts with escalators, watch accounts at risk, and record downsizing and churn.",
      "kpis": ["net retention", "accounts at risk"]},
+    {"id": "crm", "name": "CRM Operations", "agent": "Scribe", "tier": "department", "reports_to": "cdo",
+     "mission": "Keep the CRM true to operations: accounts, contracts, assets and cases synced every simulated day.",
+     "kpis": ["accounts", "assets", "cases"]},
+    {"id": "bi", "name": "Business Intelligence", "agent": "Prism", "tier": "department", "reports_to": "cdo",
+     "mission": "Load the warehouse nightly, own the metrics layer and dashboards, and publish Tableau-ready extracts.",
+     "kpis": ["days loaded", "dashboards"]},
     {"id": "energy", "name": "Energy & Sustainability", "agent": "Steward", "tier": "department",
      "mission": "Report energy use, PUE and carbon per metro.",
      "kpis": ["fleet PUE", "tCO2 per day"]},
@@ -54,7 +69,19 @@ DEPARTMENTS = [
      "mission": "Close the month: revenue by product, power cost, opex, depreciation, EBITDA.",
      "kpis": ["MRR", "EBITDA margin"]},
 ]
+for _d in DEPARTMENTS:
+    _d.setdefault("reports_to", {"net": "rnd"}.get(_d["id"], "exec"))
 DEPT = {d["id"]: d for d in DEPARTMENTS}
+
+
+def org_chart() -> dict:
+    """Chain of command: founder -> CEO -> chiefs -> departments."""
+    def node(did):
+        d = DEPT[did]
+        return {"id": did, "name": d["name"], "agent": d["agent"], "tier": d["tier"],
+                "reports": [node(x["id"]) for x in DEPARTMENTS if x["reports_to"] == did]}
+    return {"id": "founder", "name": "Founder", "agent": "you", "tier": "founder",
+            "reports": [node(d["id"]) for d in DEPARTMENTS if d["reports_to"] == "founder"]}
 
 
 @dataclass
@@ -296,8 +323,17 @@ def seed_schedules():
         return
     for name, every in (("exec_operating_cycle", "daily 02:10"),
                         ("exec_weekly_review", "weekly mon 06:40"),
-                        ("rnd_research_cycle", "weekly sat 03:20")):
+                        ("rnd_research_cycle", "weekly sat 03:20"),
+                        ("cdo_data_audit", "weekly sun 05:50"),
+                        ("ceo_board_pack", "weekly mon 07:20")):
         schedule_add(name, every)
+
+
+def seed_v3_schedules():
+    have = {s["playbook"] for s in db.rows("select playbook from schedules")}
+    for name, every in (("cdo_data_audit", "weekly sun 05:50"), ("ceo_board_pack", "weekly mon 07:20")):
+        if name not in have:
+            schedule_add(name, every)
 
 
 def tick():
@@ -353,6 +389,9 @@ def kpis():
         "remote_hands_sla_30d": products.sla_window(30)["sla_pct"],
         "net_retention_90d": products.retention(90)["net_retention"],
         "active_customers": db.scalar("select count(*) from contracts where status='active'"),
+        "data_quality_score": (db.setting("data_quality") or {}).get("score"),
+        "crm_open_pipeline_mrr": db.scalar("select round(coalesce(sum(MRR__c),0)) from crm_opportunity where IsClosed=0"
+                                           " and Type!='Renewal'") if db.one("select name from sqlite_master where name='crm_opportunity'") else None,
         "network_standard": {"rs_filtering": bool(db.setting("rs_filtering", False)),
                              "edge_filtering": bool(db.setting("edge_filtering", False))},
     }
@@ -370,7 +409,7 @@ def overview():
                      "last_run": last})
     sched = sorted([{"playbook": s["playbook"], "every": s["every"], "next_run": s["next_run"]}
                     for s in schedules() if s["enabled"]], key=lambda s: s["next_run"] or 0)
-    return {"charter": charter_mod.load(), "departments": deps, "kpis": kpis(),
+    return {"charter": charter_mod.load(), "org_chart": org_chart(), "departments": deps, "kpis": kpis(),
             "open_decisions": decisions("open")[:10], "next_scheduled": sched}
 
 
