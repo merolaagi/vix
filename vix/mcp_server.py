@@ -12,7 +12,7 @@ import time
 
 from mcp.server.mcpserver import MCPServer
 
-from . import __version__, armory, bi, chat, crm, db, graph, netdrivers, netinfra, netsim, products, roles, routerlab, thermal, world
+from . import __version__, armory, bi, chat, crm, db, fin, graph, growth, market, netdrivers, netinfra, netsim, products, roles, routerlab, thermal, trust, world
 from .company import charter as charter_mod
 from .company import engine
 from .config import MCP_PORT
@@ -493,6 +493,109 @@ def ask_vix(question: str) -> dict:
     """Ask the in-house assistant (local model via Ollama if running, else the built-in router). Returns the answer
     and the tools it used."""
     return chat.answer(question)
+
+
+# ---------- v0.6-0.9: finance, growth, market, trust, governance, portal ----------
+
+@mcp.tool()
+def fin_summary() -> dict:
+    """Finance at a glance: cash, receivables and DSO, debt, last month-end close (income statement, balance sheet, cash
+    flow, REIT metrics), monthly history, budget vs actual, six-month forecast, dividends and FX."""
+    fin.init()
+    last = fin.closed_periods(1)
+    return {"kpis": fin.kpi_hook().get("finance"), "last_close": last[0] if last else None,
+            "history": [{"period": m["period"], "revenue": round(m["income"]["revenue"]), "adj_ebitda": round(m["income"]["adj_ebitda"]),
+                         "net_income": round(m["income"]["net_income"]), "affo_per_share": round(m["metrics"]["affo_per_share"], 3),
+                         "leverage": m["metrics"]["net_debt_to_ebitda"]} for m in fin.closed_periods(12)],
+            "aging": fin.ar_aging(), "debt": fin.debt_summary(), "forecast": fin.forecast(6),
+            "budget_vs_actual": fin.budget_vs_actual(last[0]["period"]) if last else [],
+            "dividends": db.rows("select * from fin_dividend order by id desc")}
+
+
+@mcp.tool()
+def fin_statements(period: str = "") -> dict:
+    """Income statement, balance sheet, cash flow and REIT metrics for one month (YYYY-MM), derived from the general ledger."""
+    fin.init()
+    if not period:
+        last = fin.closed_periods(1)
+        period = last[0]["period"] if last else products.today()[:7]
+    return fin.statements(period)
+
+
+@mcp.tool()
+def fin_invoices(status: str = "", tenant: int = 0, limit: int = 30) -> list[dict]:
+    """Invoices (status: open | paid | written_off), optionally for one customer id."""
+    fin.init()
+    q, a = "select i.number, t.name, i.period, i.due_date, i.currency, i.amount_usd, i.balance_usd, i.status, i.dunning from fin_invoice i join tenants t on t.id=i.tenant where 1=1", []
+    if status:
+        q, a = q + " and i.status=?", a + [status]
+    if tenant:
+        q, a = q + " and i.tenant=?", a + [tenant]
+    return db.rows(q + " order by i.id desc limit ?", tuple(a + [min(limit, 200)]))
+
+
+@mcp.tool()
+def growth_pipeline() -> dict:
+    """Development: every construction project (stage, due date, budget, spend, history, ROI checks), runway by metro,
+    hyperscale requests for proposal."""
+    growth.init()
+    ps = db.rows("select id, name, kind, metro, site, stage, stage_due, status, budget_usd, spent_usd, irr, live_date, hall, history, roi from dev_project order by status, stage_due")
+    return {"summary": growth.summary(), "projects": ps, "outlook": growth.outlook(), "rfps": db.rows("select * from dev_rfp order by id desc limit 10")}
+
+
+@mcp.tool()
+def growth_power() -> dict:
+    """Power: renewable share vs the path to 100%, grid capacity and queues by metro, power purchase agreements."""
+    growth.init()
+    return {"renewables": growth.renewables(), "grid": db.rows("select * from dev_power"), "ppas": db.rows("select * from dev_ppa")}
+
+
+@mcp.tool()
+def market_overview() -> dict:
+    """Competitors and their recent moves, win/loss over 30 days (why we lose, to whom, by channel), NPS, ecosystem density
+    by metro, partners, personas and the bare-metal sunset."""
+    market.init()
+    return {"competitors": db.rows("select name, style, price_index, reputation, presence from mkt_competitor"),
+            "events": db.rows("select * from mkt_competitor_event order by id desc limit 15"), "winloss": market.winloss(30),
+            "nps": market.nps(), "ecosystem": market.ecosystem(), "partners": db.rows("select * from mkt_partner"),
+            "metal": {"position": market.metal_position(), "sunset": db.setting("metal_sunset")}}
+
+
+@mcp.tool()
+def portal_customer_view(tenant: int) -> dict:
+    """What one customer sees in the portal: services, monthly charges, invoices, tickets, requests, open orders."""
+    return market.portal_view(tenant)
+
+
+@mcp.tool()
+def portal_place_order(tenant: int, kind: str, params: dict) -> dict:
+    """Place a self-service order as a customer (list price, provisioned on the next simulated day). Kinds and params as world_order_kinds."""
+    return market.portal_order(tenant, kind, params)
+
+
+@mcp.tool()
+def trust_overview() -> dict:
+    """Trust and risk: compliance readiness and each control's latest result with evidence, audits, the risk register,
+    recent physical incidents and security alerts, continuity drills, the last backup, contract reviews."""
+    trust.init()
+    latest = db.scalar("select max(sim_date) from cmp_result")
+    return {"readiness": db.setting("compliance_readiness"),
+            "controls": db.rows("select c.id, c.title, c.frameworks, r.status, r.evidence from cmp_control c left join cmp_result r on r.id=(select max(id) from cmp_result x where x.control=c.id)"),
+            "audits": db.rows("select * from cmp_audit order by id desc limit 3"), "risks": db.rows("select * from risk_register order by score desc"),
+            "incidents": db.rows("select * from sec_incident order by id desc limit 10"), "alerts": db.rows("select * from soc_alert order by id desc limit 10"),
+            "drills": db.rows("select * from bcm_drill order by id desc limit 4"), "backup": db.setting("last_backup")}
+
+
+@mcp.tool()
+def governance_scorecards() -> dict:
+    """Arbiter's governance: every agent's grade (runs, failures, decisions, outcome score, KPI), how approved decisions turned
+    out, and department costs vs budget."""
+    trust.init()
+    latest = db.scalar("select max(sim_date) from gov_scorecard")
+    return {"as_of": latest, "scorecards": db.rows("select * from gov_scorecard where sim_date=?", (latest,)),
+            "outcomes": db.rows("select * from gov_outcome order by approved_on desc limit 40"),
+            "budgets": db.rows("select * from gov_budget where period=(select max(period) from gov_budget)")}
+
 
 
 class _TokenGate:

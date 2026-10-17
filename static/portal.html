@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vix customer portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script>try{const t=localStorage.getItem('vix-theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<style>
+:root{--bg:#f4f6f9;--panel:#fff;--panel2:#eef1f5;--line:#d9dfe7;--ink:#17202b;--dim:#5b6878;--accent:#0b8077;--accent2:#e6f4f2;--warn:#a86a0c;--bad:#c2393b;--good:#1f7d4b;
+--mono:'IBM Plex Mono',ui-monospace,monospace;--sans:'IBM Plex Sans',system-ui,sans-serif;color-scheme:light}
+@media (prefers-color-scheme: dark){:root:not([data-theme=light]){--bg:#0e1319;--panel:#151c25;--panel2:#1b2430;--line:#28333f;--ink:#dbe3ec;--dim:#8d9aa9;--accent:#4fd1c5;--accent2:#14302d;--warn:#f2b84b;--bad:#ef6b6b;--good:#5fd38d;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#0e1319;--panel:#151c25;--panel2:#1b2430;--line:#28333f;--ink:#dbe3ec;--dim:#8d9aa9;--accent:#4fd1c5;--accent2:#14302d;--warn:#f2b84b;--bad:#ef6b6b;--good:#5fd38d;color-scheme:dark}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 var(--sans)}
+a{color:var(--accent)}
+.top{background:var(--panel);border-bottom:1px solid var(--line);padding:12px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.logo{font:600 17px var(--mono)}.logo b{color:var(--accent)}.sim{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:10px;padding:1px 8px}
+.who{margin-left:auto;display:flex;gap:8px;align-items:center;font-size:13px}
+.wrap{max-width:1100px;margin:0 auto;padding:22px 16px 60px}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px;border-bottom:1px solid var(--line)}
+.tabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--dim);padding:8px 12px;font:500 14px var(--sans);cursor:pointer}
+.tabs button.on{color:var(--ink);border-bottom-color:var(--accent)}
+.pane{display:none}.pane.on{display:block}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.stat .v{font:600 22px var(--mono)}.stat .l{color:var(--dim);font-size:12px}
+h2{font-size:15px;margin:0 0 10px}h1{font-size:22px;margin:0 0 4px}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--dim);font-weight:500;font-size:12px}td.n{text-align:right;font-family:var(--mono)}
+.tw{overflow-x:auto}
+input,select,textarea{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:8px 10px;font:13px var(--sans);width:100%}
+label{font-size:12px;color:var(--dim);display:flex;flex-direction:column;gap:4px}
+.btn{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:9px 16px;font:600 13px var(--sans);cursor:pointer}
+:root[data-theme=dark] .btn{color:#06201d}@media (prefers-color-scheme: dark){:root:not([data-theme=light]) .btn{color:#06201d}}
+.btn.ghost,:root .btn.ghost{background:none;color:var(--ink)!important;border:1px solid var(--line)}
+.form{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;align-items:end}
+.st{font:600 11px var(--mono);padding:1px 7px;border-radius:4px;background:var(--panel2)}.st.paid,.st.done{color:var(--good)}.st.open{color:var(--warn)}.st.written_off,.st.failed{color:var(--bad)}
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px;white-space:pre-wrap;font:12px var(--mono);margin:8px 0 0}
+.note{color:var(--dim);font-size:12px}.msg{padding:10px 12px;border-radius:8px;background:var(--accent2);margin-top:10px;font-size:13px}
+.signin{max-width:560px;margin:40px auto}
+.pick{max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:8px}
+.pick div{padding:8px 12px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;justify-content:space-between;gap:8px}.pick div:hover{background:var(--panel2)}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="logo"><b>vix</b> customer portal</div><span class="sim">simulated</span>
+  <div class="who" id="who"></div>
+</div>
+<div class="wrap">
+  <div id="signin" class="signin card">
+    <h1>Sign in</h1>
+    <p class="note">Customers use the API key their account administrator issued. For this simulation, an operator can pick any customer and issue a key for them.</p>
+    <label>API key<input id="keyin" placeholder="vixk_..." autocomplete="off"></label>
+    <div style="margin-top:10px;display:flex;gap:8px"><button class="btn" id="keygo">Sign in with key</button></div>
+    <h2 style="margin-top:22px">Operator demo: open the portal as a customer</h2>
+    <input id="q" placeholder="Search customers" aria-label="Search customers"><div class="pick" id="pick"></div>
+  </div>
+  <div id="app" style="display:none">
+    <div class="tabs" role="tablist">
+      <button data-p="ov" class="on">Overview</button><button data-p="sv">Services</button><button data-p="bl">Billing</button>
+      <button data-p="rq">Requests</button><button data-p="od">Order</button><button data-p="ap">API</button>
+    </div>
+    <div class="pane on" id="ov"></div>
+    <div class="pane" id="sv"></div>
+    <div class="pane" id="bl"></div>
+    <div class="pane" id="rq">
+      <div class="card"><h2>New request</h2><div class="form">
+        <label>Type<select id="rkind"></select></label><label>Details<input id="rdet" placeholder="Optional notes"></label>
+        <button class="btn" id="rgo">Submit</button></div><div id="rmsg"></div></div>
+      <div class="card"><h2>Your requests</h2><div class="tw"><table id="rlist"></table></div></div>
+    </div>
+    <div class="pane" id="od">
+      <div class="card"><h2>Order a service</h2><p class="note">Self-service orders are priced at list and provisioned on the next simulated day.</p>
+        <label style="max-width:420px">Product<select id="okind"></select></label><div class="form" id="ofields" style="margin-top:10px"></div>
+        <div style="margin-top:12px"><button class="btn" id="ogo">Place order</button></div><div id="omsg"></div></div>
+      <div class="card"><h2>Orders in progress</h2><div class="tw"><table id="olist"></table></div></div>
+    </div>
+    <div class="pane" id="ap"></div>
+  </div>
+</div>
+<script>
+const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const usd=v=>v==null?'–':'$'+Math.round(v).toLocaleString();
+let KEY='',ME=null,CAT=null;
+try{KEY=sessionStorage.getItem('vix-portal-key')||''}catch(e){}
+async function papi(path,opt={}){const r=await fetch('/portal/api/v1'+path,{...opt,headers:{'content-type':'application/json','authorization':'Bearer '+KEY}});
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||r.statusText);return j}
+async function pick(){const r=await fetch('/api/portal/customers?q='+encodeURIComponent($('#q').value)).then(r=>r.json());
+  $('#pick').innerHTML=r.map(c=>`<div data-t="${c.id}"><span><b>${esc(c.name)}</b> <span class="note">${esc(c.kind)} · ${esc(c.home_metro)}</span></span><span class="note">${esc(c.persona||'')}</span></div>`).join('')||'<div class="note">No match</div>';
+  document.querySelectorAll('#pick [data-t]').forEach(d=>d.onclick=async()=>{const k=await fetch('/api/portal/key',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({tenant:+d.dataset.t})}).then(r=>r.json());signIn(k.api_key)})}
+$('#q').oninput=pick;$('#keygo').onclick=()=>signIn($('#keyin').value.trim());
+async function signIn(k){KEY=k;try{ME=await papi('/me');CAT=await papi('/catalog')}catch(e){alert(e.message);return}
+  try{sessionStorage.setItem('vix-portal-key',k)}catch(e){}$('#signin').style.display='none';$('#app').style.display='block';render()}
+function out(){KEY='';try{sessionStorage.removeItem('vix-portal-key')}catch(e){}location.reload()}
+function table(rows,cols){if(!rows||!rows.length)return '<p class="note">Nothing yet.</p>';
+  return '<table><tr>'+cols.map(c=>`<th>${c[1]}</th>`).join('')+'</tr>'+rows.map(r=>'<tr>'+cols.map(c=>{const v=r[c[0]];return `<td class="${typeof v==='number'?'n':''}">${c[2]?c[2](v,r):esc(v)}</td>`}).join('')+'</tr>').join('')+'</table>'}
+function render(){
+  const c=ME.customer,s=ME.services,ch=ME.monthly_charges;
+  $('#who').innerHTML=`<span>${esc(c.name)}</span><button class="btn ghost" onclick="out()">Sign out</button>`;
+  const due=ME.invoices.filter(i=>i.status==='open').reduce((a,i)=>a+i.balance_usd,0);
+  $('#ov').innerHTML=`<div class="card"><h1>${esc(c.name)}</h1><div class="note">Customer #${c.id} · ${esc(c.kind)} · home metro ${esc(c.home_metro)} · AS${c.asn}${ME.contract?` · contract ${ME.contract.start_date} to ${ME.contract.end_date} (${ME.contract.status})`:''}</div></div>
+    <div class="grid"><div class="card stat"><div class="v">${usd(ME.monthly_total)}</div><div class="l">Monthly charges</div></div>
+    <div class="card stat"><div class="v">${usd(due)}</div><div class="l">Balance due</div></div>
+    <div class="card stat"><div class="v">${s.ports.length}</div><div class="l">Ports</div></div>
+    <div class="card stat"><div class="v">${s.cross_connects}</div><div class="l">Cross-connects</div></div>
+    <div class="card stat"><div class="v">${s.cabinets.reduce((a,x)=>a+x.cabinets,0)}</div><div class="l">Cabinets</div></div></div>
+    <div class="card"><h2>What you pay for each month</h2>${table(Object.entries(ch).map(([k,v])=>({line:k.replace(/_/g,' '),usd:v})),[['line','Service'],['usd','Monthly',usd]])}</div>
+    <div class="card"><h2>Recent remote-hands tickets</h2>${table(ME.tickets.slice(0,8),[['sim_date','Date'],['site','Site'],['kind','Type'],['priority','Priority'],['met','SLA met',v=>v?'yes':'<span style="color:var(--bad)">missed</span>'],['billed_usd','Billed',usd]])}</div>`;
+  $('#sv').innerHTML=[['Colocation',s.cabinets,[['hall','Hall'],['cabinets','Cabinets'],['kw','kW']]],['Ports',s.ports,[['site','Site'],['speed_g','Speed (G)'],['leaf','Switch'],['leaf_if','Interface']]],
+    ['Cloud connections',s.cloud_connections,[['cloud','Cloud'],['metro','Metro'],['mbps','Mbps']]],['Exchange ports',s.exchange_ports,[['metro','Metro'],['speed_g','Speed (G)']]],
+    ['Network Edge',s.edge_devices,[['metro','Metro'],['role','Role'],['size','Size'],['ha','HA',v=>v?'yes':'no']]],['Internet Access',s.internet_access,[['metro','Metro'],['commit_mbps','Commit Mbps']]],
+    ['Bare metal',s.metal_servers,[['metro','Metro'],['plan','Plan'],['n','Servers']]]].map(([t,r,c])=>`<div class="card"><h2>${t}</h2><div class="tw">${table(r,c)}</div></div>`).join('')+
+    `<div class="card"><h2>Interconnection</h2><p>${s.cross_connects} cross-connects and ${s.virtual_circuits} virtual circuits.</p></div>`;
+  $('#bl').innerHTML=`<div class="card"><h2>Invoices</h2><div class="tw">${table(ME.invoices,[['number','Invoice'],['period','Period'],['issue_date','Issued'],['due_date','Due'],['currency','Currency'],['amount_local','Amount',(v,r)=>esc(r.currency)+' '+Math.round(v).toLocaleString()],['balance_usd','Balance (USD)',usd],['status','Status',v=>`<span class="st ${v}">${esc(v)}</span>`]])}</div>
+    <p class="note">Invoices are issued on the first of each month in your local currency: recurring charges in advance, remote hands in arrears, network SLA credits applied automatically.</p></div>`;
+  $('#rkind').innerHTML=Object.entries(CAT.request_kinds).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join('');
+  $('#rlist').innerHTML=table(ME.requests,[['id','#'],['kind','Type'],['status','Status',v=>`<span class="st ${v}">${esc(v)}</span>`],['created','Opened'],['done','Closed']]).replace(/^<table>|<\/table>$/g,'');
+  $('#okind').innerHTML=Object.entries(CAT.products).map(([k,v])=>`<option value="${k}">${esc(v.split(':')[0])}</option>`).join('');$('#okind').onchange=fields;fields();
+  $('#olist').innerHTML=table(ME.opportunities,[['Name','Order'],['StageName','Stage'],['MRR__c','Monthly',usd],['CloseDate','Expected']]).replace(/^<table>|<\/table>$/g,'');
+  const k=KEY.slice(0,9)+'…';
+  $('#ap').innerHTML=`<div class="card"><h2>Your API</h2><p>Everything in this portal is available to your own tools. Send your key as a bearer token.</p>
+    <pre>curl -H "Authorization: Bearer ${esc(k)}" ${location.origin}/portal/api/v1/me
+curl -H "Authorization: Bearer ${esc(k)}" ${location.origin}/portal/api/v1/invoices
+curl -H "Authorization: Bearer ${esc(k)}" ${location.origin}/portal/api/v1/catalog
+curl -X POST -H "Authorization: Bearer ${esc(k)}" -H "content-type: application/json" \\
+     -d '{"kind":"cross_connect","params":{"site":"${esc((s.ports[0]||{}).site||'SJC1')}"}}' ${location.origin}/portal/api/v1/orders
+curl -X POST -H "Authorization: Bearer ${esc(k)}" -H "content-type: application/json" \\
+     -d '{"kind":"loa"}' ${location.origin}/portal/api/v1/requests</pre>
+    <p class="note">Keys are stored only as a hash. Issuing a new key replaces the old one.</p></div>`}
+const FIELD_OPTS=()=>({metro:CAT.metros,a_metro:CAT.metros,z_metro:CAT.metros,site:CAT.sites,cloud:CAT.clouds,plan:CAT.plans,package:['lab','standard','advanced','premium'],
+  role:['router','firewall','sdwan'],size:['small','medium','large','xlarge'],ha:['false','true'],bgp:['true','false'],speed_g:['1','10','100','400']});
+function fields(){const d=CAT.products[$('#okind').value]||'',m=d.match(/\{(.*)\}/),names=m?m[1].split(',').map(x=>x.split(':')[0].trim()).filter(Boolean):[];const o=FIELD_OPTS();
+  $('#ofields').innerHTML=names.filter(n=>n!=='z_tenant').map(n=>`<label>${n.replace('_',' ')}${o[n]?`<select data-f="${n}">${o[n].map(v=>`<option ${n==='metro'&&v===ME.customer.home_metro?'selected':''}>${v}</option>`).join('')}</select>`:`<input data-f="${n}" value="${{cabinets:2,kw_per_cabinet:6,mbps:500,count:1,commit_mbps:500}[n]||''}">`}</label>`).join('')}
+$('#ogo').onclick=async()=>{const p={};document.querySelectorAll('#ofields [data-f]').forEach(i=>{let v=i.value;if(/^\d+$/.test(v))v=+v;if(v==='true'||v==='false')v=v==='true';p[i.dataset.f]=v});
+  try{const r=await papi('/orders',{method:'POST',body:JSON.stringify({kind:$('#okind').value,params:p})});$('#omsg').innerHTML=`<div class="msg">Order accepted (${esc(r.opportunity)}): ${usd(r.mrr_usd)} a month. ${esc(r.status)}.</div>`;ME=await papi('/me');render();$('#okind').value=r.kind}
+  catch(e){$('#omsg').innerHTML=`<div class="msg" style="background:var(--panel2);color:var(--bad)">${esc(e.message)}</div>`}};
+$('#rgo').onclick=async()=>{try{const r=await papi('/requests',{method:'POST',body:JSON.stringify({kind:$('#rkind').value,detail:{note:$('#rdet').value}})});
+  $('#rmsg').innerHTML=`<div class="msg">Request #${r.request} opened.</div>`+(r.document?`<pre>${esc(r.document)}</pre>`:'');ME=await papi('/me');const keep=$('#rmsg').innerHTML;render();$('#rmsg').innerHTML=keep}
+  catch(e){$('#rmsg').innerHTML=`<div class="msg" style="background:var(--panel2);color:var(--bad)">${esc(e.message)}</div>`}};
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tabs button,.pane').forEach(x=>x.classList.remove('on'));b.classList.add('on');$('#'+b.dataset.p).classList.add('on')});
+if(KEY)signIn(KEY);else pick();
+</script>
+</body>
+</html>

@@ -321,6 +321,9 @@ def place_order(tenant_id: int, kind: str, params: dict) -> dict:
     return {"order_id": oid, "status": "pending"}
 
 
+ON_NEW_TENANT = []   # fn(tenant_id, rnd) after a new logo is created
+
+
 def new_tenant(rnd: random.Random, kind=None, home=None):
     kind = kind or rnd.choices(KINDS, weights=[1, 1, 1.5, 3, 1.5])[0]
     home = home or rnd.choice(METROS)[0]
@@ -336,6 +339,8 @@ def new_tenant(rnd: random.Random, kind=None, home=None):
                      (nm, kind, asn, home, max(1, int(pfx * rnd.uniform(0.5, 1.6))), db.now()))
     from . import products
     products.new_contract(tid)
+    for hook in ON_NEW_TENANT:
+        hook(tid, rnd)
     return tid
 
 

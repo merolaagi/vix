@@ -4,6 +4,7 @@ Tableau can open (.hyper via Tableau's Hyper API when installed, CSV always)."""
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import json
 import sqlite3
 import time
@@ -37,11 +38,14 @@ create table if not exists fact_energy_daily (date text, metro text, it_mwh real
 create table if not exists fact_network_daily (date text primary key, incidents integer, customer_impacting integer,
   outage_service_minutes real, credits real, services integer, changes_done integer, changes_rolled_back integer,
   devices_down integer);
+create table if not exists fact_finance_monthly (date text, line text, usd real, primary key (date, line));
+create table if not exists fact_winloss_daily (date text, metro text, channel text, competitor text, reason text, persona text,
+  kind text, won integer, lost integer);
 create table if not exists load_log (date text primary key, loaded_ts real, rows integer, seconds real);
 """
 
 FACT_TABLES = ["fact_revenue_daily", "fact_ops_daily", "fact_tickets_daily", "fact_pipeline_daily",
-               "fact_bookings_daily", "fact_contract_events", "fact_energy_daily", "fact_network_daily"]
+               "fact_bookings_daily", "fact_contract_events", "fact_energy_daily", "fact_network_daily", "fact_winloss_daily"]
 DIM_TABLES = ["dim_tenant", "dim_site"]
 
 
@@ -118,6 +122,19 @@ def load(date: str | None = None) -> dict:
                       " (select count(*) from ops.net_change where window_date=? and status='rolled_back'),"
                       " (select count(*) from ops.net_device where status in ('down','unreachable'))"
                       " from ops.net_incident where sim_date=?", (date, date, services, date, date, date))
+        if c.execute("select name from ops.sqlite_master where name='fin_month'").fetchone():
+            c.execute("delete from fact_finance_monthly")
+            for m in c.execute("select period, income, metrics from ops.fin_month").fetchall():
+                y, mo = map(int, m[0].split("-"))
+                end = (dt.date(y + (mo == 12), mo % 12 + 1, 1) - dt.timedelta(days=1)).isoformat()
+                vals = {**json.loads(m[1]), **{k: v for k, v in json.loads(m[2]).items() if isinstance(v, (int, float))}}
+                c.executemany("insert or replace into fact_finance_monthly values(?,?,?)", [(end, k, v) for k, v in vals.items() if v is not None])
+        if c.execute("select name from ops.sqlite_master where name='mkt_winloss'").fetchone():
+            c.execute("delete from fact_winloss_daily where date=?", (date,))
+            c.execute("insert into fact_winloss_daily select sim_date, metro, channel, coalesce(competitor,'none'), coalesce(reason,'won'),"
+                      " persona, kind, sum(outcome='won'), sum(outcome='lost') from ops.mkt_winloss where sim_date=?"
+                      " or sim_date not in (select distinct date from fact_winloss_daily) group by sim_date, metro, channel, competitor,"
+                      " reason, persona, kind", (date,))
         n = sum(c.execute(f"select count(*) from {t} where date=?", (date,)).fetchone()[0] for t in FACT_TABLES)
         secs = round(time.time() - t0, 3)
         c.execute("insert or replace into load_log values(?,?,?,?)", (date, time.time(), n, secs))
@@ -400,6 +417,14 @@ SEMANTIC = {
                "measures": {"IT MWh": ("round(sum(f.it_mwh),1)", "mwh"), "Facility MWh": ("round(sum(f.facility_mwh),1)", "mwh"),
                             "tCO2": ("round(sum(f.tco2),1)", "t")},
                "dims": {"date": "f.date", "month": "substr(f.date,1,7)", "metro": "f.metro"}},
+    "finance": {"label": "Finance (closed months, from the ledger)", "from": "fact_finance_monthly f", "date": "f.date", "snapshot": False,
+                "measures": {"USD": ("round(sum(f.usd))", "usd"), "Value": ("round(sum(f.usd),4)", "count")},
+                "dims": {"date": "f.date", "month": "substr(f.date,1,7)", "line": "f.line"}},
+    "winloss": {"label": "Win / loss (decided deals)", "from": "fact_winloss_daily f", "date": "f.date", "snapshot": False,
+                "measures": {"Won": ("sum(f.won)", "count"), "Lost": ("sum(f.lost)", "count"),
+                             "Win rate %": ("round(100.0*sum(f.won)/nullif(sum(f.won)+sum(f.lost),0),1)", "pct")},
+                "dims": {"date": "f.date", "month": "substr(f.date,1,7)", "metro": "f.metro", "channel": "f.channel",
+                         "competitor": "f.competitor", "reason": "f.reason", "persona": "f.persona", "product": "f.kind"}},
     "network": {"label": "Network incidents", "from": "fact_network_daily f", "date": "f.date", "snapshot": False,
                 "measures": {"Incidents": ("sum(f.incidents)", "count"), "Customer-impacting": ("sum(f.customer_impacting)", "count"),
                              "Outage service-minutes": ("round(sum(f.outage_service_minutes))", "min"),

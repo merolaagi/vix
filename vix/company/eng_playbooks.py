@@ -124,7 +124,11 @@ def platform_reliability(ctx):
     retried = []
     for r in db.rows("select id, playbook, params, trigger from runs where status='failed' and started>? and parent is null"
                      " and trigger not like 'retry%'", (now - 86400,)):
-        if r["playbook"] in engine.PLAYBOOKS and not db.one("select id from runs where trigger=?", (f"retry of {r['id']}",)):
+        pb = engine.PLAYBOOKS.get(r["playbook"])
+        # never auto-retry anything that moves the simulated calendar or a chief's review: a human decides those
+        if not pb or r["playbook"] in ("exec_operating_cycle",) or engine.DEPT[pb.department]["tier"] in ("super", "chief"):
+            continue
+        if not db.one("select id from runs where trigger=?", (f"retry of {r['id']}",)):
             rid = engine.start(r["playbook"], json.loads(r["params"] or "{}"), trigger=f"retry of {r['id']}")
             retried.append({"failed_run": r["id"], "playbook": r["playbook"], "retry_run": rid})
     stats = db.rows("select playbook, count(*) runs, round(100.0*sum(status='done')/count(*),1) success_pct,"

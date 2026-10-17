@@ -102,6 +102,10 @@ create table if not exists contract_events (
   id integer primary key, ts real, sim_date text, tenant integer, event text,
   mrr_before real, mrr_after real, note text
 );
+create index if not exists tickets_date on tickets(sim_date);
+create index if not exists tickets_tenant on tickets(tenant, sim_date);
+create index if not exists placements_tenant on placements(tenant);
+create index if not exists ports_tenant on ports(tenant);
 """
 
 # columns added after v0.1 (table, column, type + default)

@@ -16,6 +16,29 @@ Every site, tenant and number is simulated and seeded. No real company is modele
 ```
 Founder (you)
 └── Helm, CEO: ceo_board_pack (weekly board pack with a recommendation on every decision)
+    ├── Quill, CFO: cfo_finance_review
+    │   ├── Margin, Deal Desk: discount authority matrix on every quote
+    │   ├── Docket, Billing: fin_billing (invoices in local currency, payments, disputes, credit notes)
+    │   ├── Reckon, Collections & Credit: fin_collections (dunning, credit holds, agency, write-offs)
+    │   ├── Ledger, Finance: fin_period_close (general ledger, three statements), fin_monthly_close (run-rate flash)
+    │   ├── Compass, FP&A: fpa_forecast (budget, budget vs actual, six-month forecast)
+    │   ├── Anchor, Treasury: treasury_review (revolver, bonds, refinancing, FX, dividends)
+    │   └── Herald, Investor Relations: ir_earnings_pack (quarterly earnings release)
+    ├── Keystone, Chief Development Officer: dev_review
+    │   ├── Scout, Site Selection: site_selection (runway, business cases, hyperscale bids)
+    │   ├── Volt, Power Procurement: power_procurement (grid queues, PPAs, renewables, bridge power)
+    │   └── Mason, Construction PMO: dev_daily, construction_report
+    ├── Summit, Chief Commercial Officer: cco_review
+    │   ├── Broker, Sales and Keeper, Account Management (moved here)
+    │   ├── Lens, Competitive Intelligence: market_intel (competitors, win/loss)
+    │   ├── Portico, Customer Experience & Portal: market_daily, customer_voice (portal, API, NPS)
+    │   └── Nexus, Marketplace & Partners: ecosystem_review
+    ├── Rampart, Chief Trust & Risk Officer: cro_review
+    │   ├── Aegis, Physical Security and Lookout, SOC: trust_daily, security_report
+    │   ├── Canon, Compliance: compliance_check (controls with evidence, simulated audit)
+    │   ├── Brace, Risk & Resilience: risk_review (risk register, backups, quarterly drills)
+    │   └── Clause, Legal & Contracts: legal_report
+    ├── Arbiter, Governance: governance_review (decision outcomes, department budgets, agent grades)
     ├── Atlas, Chief Operator: operations departments
     │   └── Bridge, Professional Services: ps_projects
     ├── Euler, Chief Scientist: R&D
@@ -78,6 +101,55 @@ Founder (you)
 Super agents delegate: their runs start child runs in the departments and write a
 summary that links each child report. Irreversible changes (a new hall, a network
 standard, extra cooling) become **decisions** the founder approves in HQ or from chat.
+
+## Running it like a public company (v0.6 to v0.9)
+
+**Money (Quill).** Every opportunity gets a quote from the Deal Desk under an authority matrix: up to 10% discount
+on its own, up to 20% with the CFO (only if gross margin stays at 25% or more), more than that needs the founder
+for deals of $40k a month or more. Billing invoices every customer on the first of the month in their own currency
+(recurring in advance, remote hands in arrears, network SLA credits applied). Customers pay late or not at all
+according to their credit rating; disputes become credit notes or are rejected; Collections runs the dunning ladder
+to credit hold, agency and write-off, and terminates customers who never pay. Everything posts to a double-entry
+general ledger, and the month-end close derives the income statement, balance sheet and cash-flow statement from it
+(the balance sheet balances to the cent and the cash flow ties out). Treasury keeps cash with a revolver, terms it
+out with bond issues and refinances maturities (founder decisions); Investor Relations publishes a quarterly earnings
+release with FFO, AFFO per share, leverage and guidance; the board declares the dividend. Finance tab in HQ.
+
+**Growth (Keystone).** New halls, AI halls, campuses and hyperscale joint ventures are projects that move through
+land, design, permits, utility power, construction and commissioning with real lead times (about 11 months for a
+hall, 2 years or more for a campus), permit and supply-chain delays, cost overruns and grid queues. Spend is
+capitalised as construction in progress and becomes PP&E when the hall opens. Each project is approved on an IRR
+business case and checked against what it actually earns 6, 12 and 24 months after it goes live. Volt buys power
+purchase agreements toward 100% renewable energy by 2030; they fix the price of part of the load. Atlas's
+build_hall decisions now start projects instead of halls appearing overnight. Growth tab.
+
+**Market (Summit).** Three invented competitors with prices, capacity and reputations by metro move every week.
+Who wins each deal depends on price after discount, ecosystem density, service reputation and capacity, seen
+through the customer's persona; every loss has a reason and a winner. Customers order and raise requests (including
+letters of authorization) in the customer portal at /portal or through its API with their own key; partners
+source deals for commission; marketplace listings connect buyers to sellers. NPS comes from what each customer
+experienced. Forge can retire bare metal: no new sales, a migration offer for every customer, end of life in 180
+days. Market tab.
+
+**Trust (Rampart) and governance (Arbiter).** Badges, visitors and a daily sweep that removes access for customers
+who leave; a security operations centre; 16 controls tested weekly against vix's own records with evidence files
+(data/evidence) and a simulated audit; weekly backups with a restore test; quarterly continuity drills; a risk
+register built from live data; non-standard contract terms and data-residency commitments. Arbiter scores every
+approved decision against its outcome (did the hire fix the SLA, did the hall earn its case, did the PPA save
+money), compares department costs with budget, and grades every agent A to D for the board pack. Trust &
+governance tab. Control references are generic framework families; it is a simulation, not an attestation.
+
+## Customer portal and API
+
+Open http://127.0.0.1:47530/portal. As the operator you can open the portal as any customer (it issues them an API
+key, stored only as a hash). Customers' own tools use the same key:
+
+```
+curl -H "Authorization: Bearer <key>" http://127.0.0.1:47530/portal/api/v1/me
+```
+
+Endpoints: `GET /me`, `GET /invoices`, `GET /catalog`, `POST /orders {kind, params}`, `POST /requests {kind}` under
+`/portal/api/v1`.
 
 ## Engineering roles (v0.5)
 
@@ -227,6 +299,12 @@ remote-hands SLAs and retention all run on this calendar.
 - **Latency**: great-circle distance x 1.45 route factor at 200 km/ms.
 
 ## Upgrading
+
+Run the new `install.sh` over the old install. v0.5 to v0.9 opens the books from the company you already have
+(opening balance sheet, three bond tranches, a revolver), rates every customer's credit, assigns personas and
+badges, seeds competitors, partners and marketplace listings, and adds the CFO, CDO (development), CCO and CRO
+reviews and the governance review to the schedules. The first invoices go out on the next billing run; the first
+month-end close happens on the first simulated day of the next month.
 
 Run the new `install.sh` over the old install. v0.4 to v0.5 adds the CTO organisation
 and the new network departments with their schedules, the ServiceNow-shaped tables,

@@ -154,7 +154,70 @@ def build() -> tuple[list[dict], list[dict]]:
             edge(f"opp:{o['Id']}", f"cust:{int(o['AccountId'][3:])}", "FOR")
             owner = {"Renewal": "Keeper", "Expansion": "Broker", "New Business": "Broker"}.get(o["Type"], "Broker")
             edge(f"opp:{o['Id']}", f"agent:{owner}", "OWNED_BY")
+    _build_v9(nodes, edges, node, edge)
     return list(nodes.values()), edges
+
+
+def _has(t):
+    return bool(db.one("select name from sqlite_master where name=?", (t,)))
+
+
+def _build_v9(nodes, edges, node, edge):
+    """v0.6-0.9: the ledger below EBITDA, projects, PPAs, competitors, partners, risks and controls."""
+    if _has("fin_month") and db.scalar("select count(*) from fin_month"):
+        m = db.one("select period, income from fin_month order by period desc limit 1")
+        inc = json.loads(m["income"])
+        node("pnl:net_income", "PnLLine", "Net income", kind="result", monthly_usd=round(inc["net_income"]), period=m["period"])
+        edge("pnl:ebitda", "pnl:net_income", "FLOWS_TO")
+        for k, owner in (("sga", "cco"), ("bad_debt", "collections"), ("depreciation", "finance"), ("interest", "treasury"), ("tax", "finance")):
+            node(f"pnl:cost:{k}", "PnLLine", f"Cost: {k.replace('_', ' ')}", kind="cost", monthly_usd=round(inc.get(k) or 0), period=m["period"])
+            edge(f"pnl:cost:{k}", "pnl:ebitda" if k in ("sga", "bad_debt") else "pnl:net_income", "SUBTRACTS_FROM")
+            edge(f"dept:{owner}", f"pnl:cost:{k}", "ACCOUNTABLE_FOR")
+    if _has("dev_project"):
+        for p in db.rows("select * from dev_project"):
+            node(f"proj:{p['id']}", "Project", p["name"], kind=p["kind"], stage=p["stage"], status=p["status"], budget_usd=round(p["budget_usd"]),
+                 spent_usd=round(p["spent_usd"] or 0), irr=p["irr"])
+            edge(f"proj:{p['id']}", f"metro:{p['metro']}", "IN")
+            edge(f"proj:{p['id']}", "dept:construction", "BUILT_BY")
+            if p["decision"]:
+                edge(f"dec:{p['decision']}", f"proj:{p['id']}", "STARTED")
+            if p["hall"]:
+                edge(f"proj:{p['id']}", f"hall:{p['hall']}", "DELIVERED")
+        for a in db.rows("select * from dev_ppa"):
+            node(f"ppa:{a['id']}", "PPA", f"{a['mw']} MW {a['kind']} PPA {a['metro']}", price_mwh=a["price_mwh"], start=a["start"])
+            edge(f"ppa:{a['id']}", f"metro:{a['metro']}", "IN")
+            edge(f"ppa:{a['id']}", "pnl:cost:power", "HEDGES")
+            edge("dept:power", f"ppa:{a['id']}", "SIGNED")
+    if _has("mkt_competitor"):
+        for c in db.rows("select * from mkt_competitor"):
+            node(f"comp:{c['id']}", "Competitor", c["name"], style=c["style"], price_index=c["price_index"], reputation=c["reputation"])
+            for metro, pr in json.loads(c["presence"]).items():
+                edge(f"comp:{c['id']}", f"metro:{metro}", "COMPETES_IN", capacity=pr["cap"], price=pr["price"])
+            edge("dept:intel", f"comp:{c['id']}", "TRACKS")
+        since = db.scalar("select date(max(sim_date), '-90 day') from mkt_winloss") or "0"
+        cid = {c["name"]: c["id"] for c in db.rows("select id, name from mkt_competitor")}
+        for r in db.rows("select competitor, tenant, count(*) n from mkt_winloss where outcome='lost' and competitor is not null and sim_date>?"
+                         " group by competitor, tenant", (since,)):
+            if r["competitor"] in cid:
+                edge(f"comp:{cid[r['competitor']]}", f"cust:{r['tenant']}", "WON_DEALS_FROM", deals=r["n"])
+        for pa in db.rows("select * from mkt_partner"):
+            node(f"partner:{pa['id']}", "Partner", pa["name"], kind=pa["kind"], tier=pa["tier"], mrr_sourced=round(pa["mrr_sourced"] or 0))
+            edge("dept:ecosystem", f"partner:{pa['id']}", "MANAGES")
+        for r in db.rows("select distinct c.partner, o.AccountId from mkt_opp_channel c join crm_opportunity o on o.Id=c.opp"
+                         " where c.partner is not null and o.IsWon=1"):
+            edge(f"partner:{r['partner']}", f"cust:{int(r['AccountId'][3:])}", "SOURCED")
+    if _has("risk_register"):
+        agents = {d["agent"] for d in __import__("vix.company.engine", fromlist=["x"]).DEPARTMENTS}
+        for r in db.rows("select * from risk_register"):
+            node(f"risk:{r['id']}", "Risk", r["title"], score=r["score"], likelihood=r["likelihood"], impact=r["impact"], evidence=r["evidence"])
+            if r["owner"] in agents:
+                edge(f"risk:{r['id']}", f"agent:{r['owner']}", "OWNED_BY")
+            edge("dept:risk", f"risk:{r['id']}", "TRACKS")
+        latest = db.scalar("select max(sim_date) from cmp_result")
+        for c in db.rows("select c.*, r.status from cmp_control c left join cmp_result r on r.control=c.id and r.sim_date=?", (latest,)):
+            node(f"ctl:{c['id']}", "Control", f"{c['id']} {c['title']}", status=c["status"], frameworks=c["frameworks"])
+            edge(f"ctl:{c['id']}", f"dept:{c['owner']}", "OWNED_BY")
+            edge("dept:compliance", f"ctl:{c['id']}", "TESTS")
 
 
 def store(nodes, edges):
@@ -177,7 +240,8 @@ def _node(i):
 
 
 FILLER = re.compile(r"\b(the|our|a|an|department|dept|team|agent|customer|product|line|device|site)\b", re.I)
-RANK = {"Department": 0, "Agent": 1, "PnLLine": 2, "Customer": 3, "Product": 4, "Site": 5, "Metro": 6, "Playbook": 7}
+RANK = {"Department": 0, "Agent": 1, "PnLLine": 2, "Customer": 3, "Product": 4, "Site": 5, "Metro": 6, "Competitor": 7, "Project": 8,
+        "Risk": 9, "Control": 10, "Playbook": 11}
 
 
 def search(text: str, limit: int = 15) -> list[dict]:

@@ -254,6 +254,11 @@ def _order_mrr(kind: str, p: dict) -> float:
     return 0.0
 
 
+WIN_HOOK = None      # fn(opportunity_row, rnd) -> (won: bool, info: dict); market module sets it
+ON_OPPORTUNITY = []  # fn(opportunity_id) after a new-business/expansion opportunity is opened
+ON_CLOSED = []       # fn(opportunity_row, won, info, order) after an opportunity closes
+
+
 def open_opportunity(tenant: int, kind: str, params: dict, close_in_days: int, typ: str = "New Business") -> str:
     from . import products
     init()
@@ -267,6 +272,8 @@ def open_opportunity(tenant: int, kind: str, params: dict, close_in_days: int, t
                (oid, account_id(tenant), f"{name} - {kind.replace('_', ' ')}", typ, STAGES[0][0], STAGES[0][1],
                 round(mrr * 12, 2), mrr, (today + __import__("datetime").timedelta(days=close_in_days)).isoformat(),
                 kind, json.dumps(params), today.isoformat(), today.isoformat()))
+    for hook in ON_OPPORTUNITY:
+        hook(oid)
     return oid
 
 
@@ -279,7 +286,12 @@ def advance_pipeline(rnd: random.Random) -> dict:
     won = lost = moved = 0
     for o in db.rows("select * from crm_opportunity where IsClosed=0 and Type!='Renewal'"):
         if o["CloseDate"] <= today:
-            if rnd.random() < WIN_RATE:
+            if WIN_HOOK:
+                is_won, info = WIN_HOOK(o, rnd)
+            else:
+                is_won, info = rnd.random() < WIN_RATE, {}
+            order = None
+            if is_won:
                 tid = int(o["AccountId"][3:])
                 order = world.place_order(tid, o["Product__c"], json.loads(o["Params__c"] or "{}"))
                 db.execute("update crm_opportunity set StageName='Closed Won', Probability=100, IsClosed=1, IsWon=1,"
@@ -289,6 +301,8 @@ def advance_pipeline(rnd: random.Random) -> dict:
                 db.execute("update crm_opportunity set StageName='Closed Lost', Probability=0, IsClosed=1, IsWon=0,"
                            " LastModifiedDate=? where Id=?", (today, o["Id"]))
                 lost += 1
+            for hook in ON_CLOSED:
+                hook(o, is_won, info, order)
             continue
         # stage by elapsed share of the sales cycle
         start = o["CreatedDate"]

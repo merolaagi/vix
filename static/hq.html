@@ -24,13 +24,17 @@
 *{box-sizing:border-box}
 a{color:var(--accent)}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans)}
-header{display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5;flex-wrap:wrap}
+header{display:flex;align-items:center;gap:16px;padding:12px 20px;min-height:61px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5;flex-wrap:wrap}
 .brand{font:600 18px var(--mono);letter-spacing:.04em}.brand b{color:var(--accent)}
 .tag{color:var(--dim);font-size:12px}
-nav{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
-nav button{background:none;border:1px solid transparent;color:var(--dim);padding:6px 12px;border-radius:6px;cursor:pointer;font:500 13px var(--sans)}
+.shell{display:grid;grid-template-columns:196px minmax(0,1fr);align-items:start}
+nav.side{position:sticky;top:61px;height:calc(100vh - 61px);overflow:auto;border-right:1px solid var(--line);padding:12px 10px;display:flex;flex-direction:column;gap:2px}
+nav.side .grp{font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.12em;color:var(--dim);margin:12px 8px 4px}
+nav.side .grp:first-child{margin-top:2px}
+@media(max-width:900px){.shell{grid-template-columns:1fr}nav.side{position:sticky;top:0;z-index:4;height:auto;flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);background:var(--bg);padding:8px}nav.side .grp{display:none}nav.side button{white-space:nowrap}header{position:static}}
+nav button{background:none;border:1px solid transparent;color:var(--dim);padding:6px 10px;border-radius:6px;cursor:pointer;font:500 13px var(--sans);text-align:left}
 nav button.on{color:var(--ink);border-color:var(--line);background:var(--panel)}
-main{padding:20px 20px 80px;max-width:1400px;margin:0 auto}
+main{padding:20px 20px 80px;max-width:1400px;min-width:0;width:100%}
 .tab{display:none}.tab.on{display:block}
 h2{font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.12em;color:var(--dim);margin:26px 0 10px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
@@ -122,18 +126,41 @@ pre.sql{font:11px var(--mono);color:var(--dim);white-space:pre-wrap;margin:8px 0
 .lg{display:flex;gap:12px;flex-wrap:wrap;font:11px var(--mono);color:var(--dim);margin-top:6px}.lg i{display:inline-block;width:12px;height:3px;margin-right:5px;vertical-align:middle;border-radius:2px}
 .presets{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px}
 details.dt summary{cursor:pointer;color:var(--dim);font-size:12px;margin:10px 0 6px}
+.chipst{font:600 11px var(--mono);padding:1px 7px;border-radius:4px}
+.chipst.pass,.chipst.A,.chipst.good,.chipst.done,.chipst.live,.chipst.won{color:var(--green);background:var(--ok-bg)}
+.chipst.fail,.chipst.D,.chipst.poor,.chipst.lost,.chipst.high,.chipst.critical{color:var(--red);background:var(--bad-bg)}
+.chipst.exception,.chipst.C,.chipst.mixed,.chipst.medium,.chipst.active,.chipst.pending{color:var(--amber);background:var(--warn-bg)}
+.chipst.B,.chipst.low{color:var(--accent);background:var(--panel2)}
+.stmt td.n{white-space:nowrap}.stmt tr.tot td{font-weight:600;border-top:1px solid var(--dim)}
+.proj{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:8px}
+.proj .top{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}.stages{display:flex;gap:3px;margin:8px 0 4px}
+.stages span{flex:1;height:8px;border-radius:3px;background:var(--panel2)}.stages span.done{background:var(--accent)}.stages span.cur{background:var(--amber)}
+.stlab{display:flex;gap:3px;font:10px var(--mono);color:var(--dim)}.stlab span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.heat5{display:grid;grid-template-columns:28px repeat(5,1fr);gap:3px;font:11px var(--mono)}.heat5 div{min-height:44px;border-radius:4px;padding:3px;display:flex;flex-wrap:wrap;gap:3px;align-content:flex-start}
+.heat5 .ax{background:none;color:var(--dim);align-items:center;justify-content:center;min-height:auto}
+.heat5 b{background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:0 4px;font-weight:600;color:var(--ink);cursor:default}
 </style>
 </head>
 <body>
 <header>
   <div><div class="brand"><b>vix</b> HQ</div><div class="tag" id="tagline">Virtual Interconnection eXchange · simulated</div></div>
   <button class="b" id="themebtn" title="Switch light / dark" aria-label="Switch light or dark theme"></button>
-  <nav>
-    <button data-t="overview" class="on">Overview</button><button data-t="world">World</button><button data-t="business">Business</button><button data-t="insights">Insights</button><button data-t="crm">CRM</button><button data-t="network">Network</button><button data-t="roles">Roles</button><button data-t="graph">Graph</button><button data-t="explore">Explore (BI)</button>
-    <button data-t="decisions">Decisions <span id="dcount"></span></button><button data-t="reports">Reports</button>
-    <button data-t="schedules">Schedules</button>
-  </nav>
+  <a class="b" href="/portal" target="_blank" rel="noopener" style="margin-left:auto;text-decoration:none">Customer portal ↗</a>
 </header>
+<div class="shell">
+<nav class="side" aria-label="HQ sections">
+  <div class="grp">Company</div>
+  <button data-t="overview" class="on">Overview</button><button data-t="decisions">Decisions <span id="dcount"></span></button>
+  <button data-t="reports">Reports</button><button data-t="roles">Roles</button><button data-t="schedules">Schedules</button>
+  <div class="grp">Money</div>
+  <button data-t="finance">Finance</button><button data-t="business">Business</button><button data-t="crm">CRM</button>
+  <div class="grp">Growth &amp; market</div>
+  <button data-t="growth">Growth</button><button data-t="market">Market</button>
+  <div class="grp">Operations</div>
+  <button data-t="world">World</button><button data-t="network">Network</button><button data-t="trust">Trust &amp; governance</button>
+  <div class="grp">Data</div>
+  <button data-t="insights">Insights</button><button data-t="explore">Explore (BI)</button><button data-t="graph">Graph</button>
+</nav>
 <main>
   <section class="tab on" id="overview">
     <div class="kpis" id="kpis"></div>
@@ -247,6 +274,66 @@ details.dt summary{cursor:pointer;color:var(--dim);font-size:12px;margin:10px 0 
       </div>
     </div>
   </section>
+  <section class="tab" id="finance">
+    <div class="kpis" id="fk" style="margin-top:14px"></div>
+    <h2>Month-end close <select id="fper" aria-label="Period"></select></h2><p class="note" id="fnote"></p>
+    <div class="grid wide" id="fstmt"></div>
+    <h2>Monthly results</h2><div class="tile wide" id="fchart"></div><div class="tw" style="margin-top:10px"><table id="fper_t"></table></div>
+    <div class="grid wide" style="margin-top:12px">
+      <div><h2>Receivables ageing</h2><div class="card" id="fage"></div></div>
+      <div><h2>Budget vs actual</h2><div class="tw"><table id="fbva"></table></div><h2>Six-month forecast</h2><div class="tw"><table id="ffc"></table></div></div>
+      <div><h2>Debt and liquidity</h2><div class="tw"><table id="fdebt"></table></div><h2>Dividends</h2><div class="tw"><table id="fdiv"></table></div></div>
+      <div><h2>Earnings releases</h2><div class="card" id="fir"></div><h2>FX</h2><div class="tw"><table id="ffx"></table></div></div>
+    </div>
+    <h2>Invoices <select id="fist" aria-label="Invoice status"><option value="">all</option><option>open</option><option>paid</option><option value="written_off">written off</option></select></h2>
+    <div class="tw"><table id="finv"></table></div>
+    <h2>Deal desk: latest quotes</h2><div class="tw"><table id="fq"></table></div>
+  </section>
+  <section class="tab" id="growth">
+    <div class="kpis" id="gk2" style="margin-top:14px"></div>
+    <h2>Projects</h2><div id="gproj"></div>
+    <h2>Runway by metro</h2><div class="tw"><table id="grun"></table></div>
+    <div class="grid wide" style="margin-top:12px">
+      <div><h2>Renewable energy</h2><div class="tw"><table id="gren"></table></div></div>
+      <div><h2>Grid capacity</h2><div class="tw"><table id="ggrid"></table></div><h2>Power purchase agreements</h2><div class="tw"><table id="gppa"></table></div></div>
+    </div>
+    <h2>Hyperscale requests for proposal</h2><div class="tw"><table id="grfp"></table></div>
+  </section>
+  <section class="tab" id="market">
+    <div class="kpis" id="mk" style="margin-top:14px"></div>
+    <div class="grid wide" style="margin-top:12px">
+      <div><h2>Why we lose (30 days)</h2><div class="card" id="mloss"></div></div>
+      <div><h2>Who we lose to</h2><div class="card" id="mlto"></div><h2>By channel</h2><div class="tw"><table id="mch"></table></div></div>
+    </div>
+    <h2>Competitors by metro <span class="note">(capacity score · price vs vix list)</span></h2><div class="tw"><table class="heat" id="mcomp"></table></div>
+    <h2>Competitor moves</h2><div class="tw"><table id="mev"></table></div>
+    <div class="grid wide" style="margin-top:12px">
+      <div><h2>Ecosystem density</h2><div class="tw"><table id="meco"></table></div></div>
+      <div><h2>Customer voice</h2><div class="card" id="mnps"></div><h2>Personas</h2><div class="tw"><table id="mper"></table></div></div>
+      <div><h2>Marketplace</h2><div class="tw"><table id="mlist"></table></div></div>
+      <div><h2>Partners</h2><div class="tw"><table id="mpart"></table></div><h2>Bare-metal sunset</h2><div class="card" id="mmetal"></div></div>
+    </div>
+  </section>
+  <section class="tab" id="trust">
+    <div class="kpis" id="tk" style="margin-top:14px"></div>
+    <h2>Controls <span class="note" id="tasof"></span></h2><div class="tw"><table id="tctl"></table></div>
+    <div class="card" id="tev" style="display:none;margin-top:8px"></div>
+    <div class="grid wide" style="margin-top:12px">
+      <div><h2>Risk heat map</h2><div class="card" id="theat"></div></div>
+      <div><h2>Risk register</h2><div class="tw"><table id="trisk"></table></div></div>
+    </div>
+    <div class="grid wide" style="margin-top:12px">
+      <div><h2>Physical security</h2><div class="tw"><table id="tinc"></table></div></div>
+      <div><h2>Security operations</h2><div class="tw"><table id="tsoc"></table></div></div>
+      <div><h2>Continuity drills and backups</h2><div class="tw"><table id="tdr"></table></div><p class="note" id="tbk"></p></div>
+      <div><h2>Contract reviews</h2><div class="tw"><table id="tleg"></table></div><h2>Audits (simulated)</h2><div class="tw"><table id="taud"></table></div></div>
+    </div>
+    <h2>Governance: agent scorecards <span class="note" id="gvasof"></span></h2><div class="tw"><table id="gvcard"></table></div>
+    <div class="grid wide" style="margin-top:12px">
+      <div><h2>Decision outcomes</h2><div class="tw"><table id="gvout"></table></div></div>
+      <div><h2>Track record by kind</h2><div class="tw"><table id="gvkind"></table></div><h2>Department costs vs budget</h2><div class="tw"><table id="gvbud"></table></div></div>
+    </div>
+  </section>
   <section class="tab" id="decisions"><h2>Decisions filed by the super agents</h2><div id="declist"></div></section>
   <section class="tab" id="reports"><div class="split"><div class="list" id="replist"></div><div class="md" id="repview"><p class="note">Pick a report.</p></div></div></section>
   <section class="tab" id="schedules">
@@ -259,6 +346,7 @@ details.dt summary{cursor:pointer;color:var(--dim);font-size:12px;margin:10px 0 
     </div>
   </section>
 </main>
+</div>
 <button id="askbtn">Ask vix</button>
 <div id="ask"><div class="hd"><div><b>Ask vix</b> <span class="note" id="askeng"></span></div><button class="b" id="askx">✕</button></div>
   <div class="msgs" id="askmsgs"><div class="msg a">Ask anything about the company: revenue, costs and EBITDA, customers, renewals, the network, decisions, who does what, or how two things are connected.</div></div>
@@ -625,6 +713,135 @@ window.addEventListener('resize',()=>{if(xLast&&$('#explore').classList.contains
 $('#xpin').onclick=async()=>{const sp=xSpec();let m=XQ.mark==='auto'?(!sp.dims.length?'kpi':sp.dims.some(isTime)?'line':'bar'):XQ.mark==='text'?'kpi':XQ.mark;
   try{const r=await api('/api/bi/explore/pin',{method:'POST',body:JSON.stringify({spec:sp,title:$('#xtitle').value||'Exploration',chart:m})});toast(`Pinned to "Saved explorations" (${r.tiles} tiles). Open it in Insights.`)}catch(e){toast(e.message)}};
 
+
+// ---------------- shared helpers for v0.9 tabs
+const chip=v=>v==null?'':`<span class="chipst ${esc(String(v)).replace(/[^\w]/g,'')}">${esc(v)}</span>`;
+const sm=v=>v==null?'–':(v<0?'-':'')+'$'+(Math.abs(v)>=1e6?(Math.abs(v)/1e6).toFixed(2)+'M':Math.round(Math.abs(v)).toLocaleString());
+function tbl(sel,rows,cols){const el=$(sel);if(!el)return;if(!rows||!rows.length){el.innerHTML='<tr><td class="note">None yet.</td></tr>';return}
+  el.innerHTML='<tr>'+cols.map(c=>`<th>${c[1]}</th>`).join('')+'</tr>'+rows.map(r=>'<tr>'+cols.map(c=>{const v=c[2]?c[2](r[c[0]],r):r[c[0]];
+    return `<td class="${typeof r[c[0]]==='number'&&!c[3]?'n':''}">${v==null?'':(c[2]?v:esc(v))}</td>`}).join('')+'</tr>').join('')}
+const kpiTiles=(sel,arr)=>{$(sel).innerHTML=arr.map(([l,v])=>`<div class="kpi"><div class="v" style="font-size:17px">${esc(v??'–')}</div><div class="l">${l}</div></div>`).join('')};
+const pc=v=>v==null?'–':(v*100).toFixed(1)+'%';
+
+// ---------------- Finance
+let FIN=null;
+async function financeTab(){
+  FIN=await api('/api/fin/summary');const k=FIN.kpis||{},lc=FIN.last_close;
+  kpiTiles('#fk',[['Cash',sm(k.cash)],['Receivables',sm(k.ar)],['DSO (today)',k.dso_days==null?'–':k.dso_days+' days'],['Debt',sm(k.debt)],
+    ['Net debt / EBITDA',lc&&lc.metrics.net_debt_to_ebitda?lc.metrics.net_debt_to_ebitda.toFixed(2)+'x':'–'],['AFFO / share (month)',lc?'$'+lc.metrics.affo_per_share.toFixed(3):'–'],
+    ['Last close',k.last_close||'none yet'],['Credit holds',k.credit_holds??0]]);
+  const ps=FIN.periods||[];
+  $('#fper').innerHTML=ps.map(p=>`<option>${p.period}</option>`).join('')||'<option value="">no closed month</option>';
+  $('#fper').onchange=()=>finStmt($('#fper').value);
+  if(ps.length)finStmt(ps[0].period);else{$('#fstmt').innerHTML='<p class="note">No month closed yet: the first close runs on the first simulated day of next month.</p>'}
+  const W=Math.max(300,($('#fchart').clientWidth||900)-30);const rows=[];[...ps].reverse().forEach(p=>{rows.push({m:p.period,s:'revenue',v:p.revenue});rows.push({m:p.period,s:'adjusted EBITDA',v:p.adj_ebitda});rows.push({m:p.period,s:'net income',v:p.net_income})});
+  $('#fchart').innerHTML=rows.length>3?'<div class="t">Revenue, adjusted EBITDA and net income by month</div>'+xLine(W,rows,'m','s','v','usd'):'<p class="note">The chart fills as months close.</p>';
+  tbl('#fper_t',ps,[['period','Month'],['revenue','Revenue',sm],['adj_ebitda','Adj. EBITDA',sm],['net_income','Net income',sm],['affo_per_share','AFFO/share',v=>'$'+v.toFixed(3)],
+    ['net_debt_to_ebitda','Leverage',v=>v?v.toFixed(2)+'x':'–'],['cash','Cash',sm],['dso_days','DSO',v=>v?v.toFixed(0):'–'],['balance_check','Balances',v=>Math.abs(v)<1?chip('pass'):chip('fail')]]);
+  const ag=FIN.aging,mx=Math.max(...Object.values(ag.buckets),1);
+  $('#fage').innerHTML='<table>'+Object.entries(ag.buckets).map(([b,v])=>`<tr><td>${b}</td><td class="n">${sm(v)}</td><td style="width:50%"><div class="bar"><i class="${b==='90+'||b==='61-90'?'over':b==='31-60'?'hot':''}" style="width:${v/mx*100}%"></i></div></td></tr>`).join('')+
+    `</table><p class="note">${ag.on_hold} customers on credit hold, ${ag.distressed} in distress. Dunning: reminder at 7 days, final notice 30, hold 45, agency 90, write-off 120.</p>`;
+  tbl('#fbva',FIN.budget_vs_actual,[['line','Line'],['budget','Budget',sm],['actual','Actual',sm],['variance_pct','Var.',v=>v==null?'':(v>0?'+':'')+v+'%']]);
+  tbl('#ffc',FIN.forecast,[['period','Month'],['revenue','Revenue',sm],['adj_ebitda','EBITDA',sm],['capex','Capex',sm],['cash','Cash',sm]]);
+  tbl('#fdebt',FIN.debt.instruments,[['name','Instrument'],['principal','Principal',sm],['rate','Rate',v=>v?(v*100).toFixed(2)+'%':'floating'],['maturity','Matures']]);
+  tbl('#fdiv',FIN.dividends,[['quarter','Quarter'],['per_share','Per share',v=>'$'+v.toFixed(3)],['total_usd','Total',sm],['paid','Paid']]);
+  $('#fir').innerHTML=(FIN.earnings||[]).map(e=>{const su=JSON.parse(e.summary||'{}');return `<div><a href="#" data-rep="${e.report}">${esc(su.published||'release')}</a> · revenue ${sm(su.revenue)} · AFFO/share $${(su.affo_per_share||0).toFixed(3)}</div>`}).join('')||'<p class="note">Herald publishes once a full quarter has closed.</p>';
+  tbl('#ffx',FIN.fx,[['ccy','Currency'],['rate','Per USD'],['move_pct','Move vs start',v=>(v>0?'+':'')+v+'%']]);
+  $('#fist').onchange=finInv;finInv();
+  tbl('#fq',await api('/api/fin/quotes?limit=25'),[['sim_date','Date'],['name','Customer'],['kind','Product'],['metro','Metro'],['list_mrr','List',sm],['discount_pct','Discount',pc],['net_mrr','Net',sm],['gm_pct','GM after',pc],['approval','Approved by'],['status','Status',chip]]);
+}
+async function finInv(){tbl('#finv',await api('/api/fin/invoices?limit=40&status='+$('#fist').value),[['number','Invoice'],['name','Customer'],['period','Period'],['due_date','Due'],['currency','Ccy'],['amount_usd','Amount',sm],['balance_usd','Balance',sm],['status','Status',chip],['dunning','Dunning']])}
+async function finStmt(period){
+  const st=await api('/api/fin/statements?period='+period),i=st.income,b=st.balance,c=st.cashflow,m=st.metrics;
+  const row=(l,v,tot)=>`<tr class="${tot?'tot':''}"><td>${l}</td><td class="n">${sm(v)}</td></tr>`;
+  const card=(t,h)=>`<div class="card stmt"><h3 style="margin:0 0 8px">${t}</h3><table>${h}</table></div>`;
+  $('#fnote').textContent=`Derived from the general ledger. Assets − liabilities − equity = ${sm(m.balance_check)}; cash-flow check ${sm(c.check)}.`;
+  $('#fstmt').innerHTML=card('Income statement',row('Recurring revenue',i.recurring_revenue)+row('Usage and services',i.usage_revenue)+row('Credits',i.credits)+row('Revenue',i.revenue,1)+
+      row('Power',-i.power)+row('Site operations',-i.site_operations)+row('Remote-hands staff',-i.remote_hands_staff)+row('Network support',-i.network_support)+row('Gross profit',i.gross_profit,1)+
+      row('SG&A',-i.sga)+row('Bad debt',-i.bad_debt)+row('Hyperscale JV income',i.jv_income||0)+row('Adjusted EBITDA',i.adj_ebitda,1)+row('Depreciation',-i.depreciation)+row('Interest',-i.interest)+
+      row('FX',-i.fx_loss)+row('Tax',-i.tax)+row('Net income',i.net_income,1))+
+    card('Balance sheet',row('Cash',b.assets.cash)+row('Receivables',b.assets.accounts_receivable)+row('PP&E (gross)',b.assets.ppe_gross)+row('Accumulated depreciation',b.assets.accumulated_depreciation)+
+      row('Construction in progress',b.assets.construction_in_progress)+row('Hyperscale JVs',b.assets.jv_investment||0)+row('Total assets',b.assets.total_assets,1)+row('Revolver',b.liabilities.revolver)+row('Senior notes',b.liabilities.senior_notes)+
+      row('Total liabilities',b.liabilities.total_liabilities,1)+row('Paid-in capital',b.equity.paid_in_capital)+row('Retained earnings',b.equity.retained_earnings)+row('Dividends',b.equity.dividends)+row('Total equity',b.equity.total_equity,1))+
+    card('Cash flow',row('Net income',c.net_income)+row('Depreciation',c.depreciation)+row('Change in receivables',c.change_in_receivables)+row('Operating cash flow',c.operating_cash_flow,1)+
+      row('Maintenance capex',c.maintenance_capex)+row('Growth capex',c.growth_capex)+row('Investing cash flow',c.investing_cash_flow,1)+row('Debt drawn / repaid',c.debt_drawn_repaid)+row('Dividends',c.dividends_paid)+
+      row('Financing cash flow',c.financing_cash_flow,1)+row('Net change in cash',c.net_change_in_cash,1))+
+    card('REIT and credit metrics',row('FFO',m.ffo)+row('AFFO',m.affo)+`<tr><td>AFFO per share</td><td class="n">$${m.affo_per_share.toFixed(3)}</td></tr>`+
+      `<tr><td>Adjusted EBITDA margin</td><td class="n">${pc(m.adj_ebitda_margin)}</td></tr><tr><td>Net debt / annualised EBITDA</td><td class="n">${m.net_debt_to_ebitda?m.net_debt_to_ebitda.toFixed(2)+'x':'–'}</td></tr>`+
+      `<tr><td>Interest cover</td><td class="n">${m.interest_cover?m.interest_cover.toFixed(1)+'x':'–'}</td></tr><tr><td>DSO (month end)</td><td class="n">${m.dso_days?m.dso_days.toFixed(1)+' days':'–'}</td></tr>`+row('Liquidity',m.liquidity))}
+
+// ---------------- Growth
+async function growthTab(){
+  const g=await api('/api/growth/summary'),s=g.summary,rn=g.renewables;
+  kpiTiles('#gk2',[['Projects under way',s.active],['MW under construction',s.mw_under_construction],['Capex still to spend',sm(s.budget_active-s.spent_active)],['Delivered',s.live],
+    ['Renewable energy',(rn.renewable_pct??'–')+'%'],['Target this year',rn.target_pct+'%'],['Energy use',(rn.mwh_month||0).toLocaleString()+' MWh/mo']]);
+  $('#gproj').innerHTML=g.projects.map(p=>{const st=g.stages[p.kind]||[],idx=st.findIndex(x=>x[0]===p.stage),live=p.status==='live';
+    return `<div class="proj"><div class="top"><div><b>${esc(p.name)}</b> ${chip(p.status)} <span class="note">${p.kind.replace('_',' ')} · ${p.mw} MW${p.cabinets&&p.kind!=='hyperscale'?' · '+p.cabinets+' cabinets':''}${p.irr?' · IRR at approval '+(p.irr*100).toFixed(1)+'%':''}</span></div>
+      <div class="note">${live?'live '+p.live_date+(p.hall?' as '+esc(p.hall):''):esc(p.stage)+' until '+p.stage_due} · spent ${sm(p.spent_usd)} of ${sm(p.budget_usd)}</div></div>
+      <div class="stages">${st.map((x,i)=>`<span class="${live||i<idx?'done':i===idx?'cur':''}" title="${x[0]}"></span>`).join('')}</div>
+      <div class="stlab">${st.map(x=>`<span>${x[0]}</span>`).join('')}</div>
+      <details><summary class="note">History (${p.history.length})${p.roi.length?' · ROI checks '+p.roi.length:''}</summary><ul style="margin:6px 0;padding-left:18px">${p.history.map(h=>`<li class="note">${h.date}: ${esc(h.event)}</li>`).join('')}
+      ${p.roi.map(r=>`<li>ROI at ${r.months} months: ${sm(r.actual_mrr)}/mo vs plan ${sm(r.plan_mrr)} (${Math.round((r.ratio||0)*100)}%)</li>`).join('')}</ul></details></div>`}).join('')||'<p class="note">No projects yet. Scout files them when a metro will sell out before a new hall could be built.</p>';
+  tbl('#grun',g.outlook,[['metro','Metro'],['type','Type'],['sold','Sold'],['cabinets','Of'],['waitlisted','Waitlisted'],['absorption_per_month','Absorption/mo'],['months_to_full','Months to full'],['lead_months','Lead time (mo)'],['pipeline_cabinets','In pipeline'],['needs_capacity','Needs capacity',v=>v?'<span class="chipst fail">yes</span>':'']]);
+  tbl('#gren',rn.metros,[['metro','Metro'],['mwh_month','MWh/mo'],['ppa_mwh','PPA MWh'],['renewable_pct','Renewable %'],['grid_price','Grid $/kWh'],['ppa_price','PPA $/kWh']]);
+  tbl('#ggrid',g.grid,[['metro','Metro'],['grid_mw_available','Grid MW free',v=>v.toFixed(1)],['refill_mw_month','Released per month'],['onsite_mw','Bridge MW']]);
+  tbl('#gppa',g.ppas,[['metro','Metro'],['mw','MW'],['kind','Source'],['price_mwh','$/MWh'],['start','Starts'],['end_date','Ends'],['status','Status',chip]]);
+  tbl('#grfp',g.rfps,[['cloud','Cloud'],['metro','Metro'],['mw','MW'],['rent_kw','Rent $/kW'],['irr','IRR',v=>v?(v*100).toFixed(1)+'%':''],['opened','Opened'],['status','Status',chip],['competitor','Won by']]);
+}
+
+// ---------------- Market
+async function marketTab(){
+  const m=await api('/api/market/summary'),wl=m.winloss,n=m.nps;
+  kpiTiles('#mk',[['Win rate (30d)',wl.win_rate==null?'–':Math.round(wl.win_rate*100)+'%'],['Deals decided',wl.deals],['NPS',n.nps??'–'],['Portal CSAT',n.portal_csat?n.portal_csat+' / 5':'–'],
+    ['Top loss reason',wl.loss_reasons[0]?.reason||'–'],['Densest ecosystem',[...m.ecosystem].sort((a,b)=>b.density-a.density)[0]?.metro||'–']]);
+  $('#mloss').innerHTML=xBars(wl.loss_reasons.map(r=>r.reason),wl.loss_reasons.map(r=>r.n),'count');
+  $('#mlto').innerHTML=xBars(wl.lost_to.map(r=>r.competitor),wl.lost_to.map(r=>r.n),'count');
+  tbl('#mch',wl.by_channel,[['channel','Channel'],['won','Won'],['lost','Lost'],['win_rate','Win rate',pc]]);
+  const metros=[...new Set(m.ecosystem.map(e=>e.metro))];
+  $('#mcomp').innerHTML='<tr><th></th>'+metros.map(x=>`<th>${x}</th>`).join('')+'</tr>'+m.competitors.map(c=>`<tr><th style="text-align:left">${esc(c.name)}<div class="note">${esc(c.style)}</div></th>`+
+    metros.map(x=>{const p=c.presence[x];return p?`<td style="background:rgba(239,107,107,${(p.cap*.45).toFixed(2)})">${p.cap.toFixed(2)}<br><span class="note">${p.price.toFixed(2)}</span></td>`:'<td class="note">–</td>'}).join('')+'</tr>').join('');
+  tbl('#mev',m.events,[['sim_date','Date'],['competitor','Competitor'],['metro','Metro'],['event','Event'],['detail','Detail']]);
+  tbl('#meco',[...m.ecosystem].sort((a,b)=>b.density-a.density),[['metro','Metro'],['networks','Networks'],['exchange_members','IX members'],['interconnections','Interconnections'],['per_customer','Per customer'],['density','Density',v=>`<div class="bar" style="min-width:80px"><i style="width:${v*100}%"></i></div>`]]);
+  $('#mnps').innerHTML=`<div class="big" style="font:600 26px var(--mono)">${n.nps??'–'}</div><div class="note">${n.responses} responses · ${n.promoters??0} promoters · ${n.detractors??0} detractors</div>`+
+    (n.detractor_drivers&&n.detractor_drivers.length?'<div style="margin-top:8px">'+xBars(n.detractor_drivers.map(d=>d.driver),n.detractor_drivers.map(d=>d.n),'count')+'</div>':'');
+  tbl('#mper',m.personas,[['persona','Persona'],['n','Customers'],['avg_nps','Avg score'],['portal','Portal users']]);
+  tbl('#mlist',m.listings.slice(0,12),[['title','Listing'],['category','Category'],['connections','Connections']]);
+  tbl('#mpart',m.partners,[['name','Partner'],['kind','Kind'],['tier','Tier'],['deals_won','Deals'],['mrr_sourced','MRR sourced',sm]]);
+  const mt=m.metal,su=mt.sunset;
+  $('#mmetal').innerHTML=`<div>Bare metal: ${sm(mt.position.metal_mrr)}/mo (${(mt.position.share_of_revenue*100).toFixed(1)}% of revenue), ${mt.position.customers} customers.</div>`+
+    (su?`<div class="note" style="margin:6px 0">Sunset announced ${su.announced}; end of life ${su.eol}${su.done?' (completed '+su.done+')':''}.</div>`+
+      '<table>'+mt.migration.map(r=>`<tr><td>${chip(r.status)}</td><td class="n">${r.n}</td><td class="n">${sm(r.before)} → ${sm(r.after)}</td></tr>`).join('')+'</table>'
+      :'<div class="note" style="margin-top:6px">Not retired. Forge files the decision in the commercial review.</div>');
+}
+
+// ---------------- Trust & governance
+async function trustTab(){
+  const [t,g]=await Promise.all([api('/api/trust/summary'),api('/api/gov/summary')]);
+  const inc30=t.incidents.length,al=t.alerts.length,aud=t.audits[0];
+  kpiTiles('#tk',[['Compliance readiness',t.readiness?t.readiness.score+'%':'–'],['Top risk',t.risks[0]?t.risks[0].title+' ('+t.risks[0].score+')':'–'],
+    ['Recent physical incidents',inc30],['Recent security alerts',al],['Last audit (simulated)',aud?aud.opinion+' · '+aud.sim_date:'none yet'],['Last backup',t.backup?(t.backup.restore_ok?'restored OK ':'FAILED ')+t.backup.date:'none yet']]);
+  $('#tasof').textContent=t.as_of?'tested '+t.as_of+' · click a control for its evidence':'';
+  tbl('#tctl',t.controls,[['id','Control'],['family','Family'],['title','What it checks'],['owner','Owner'],['frameworks','Maps to'],['status','Status',(v,r)=>chip(v||'untested')+(r.path?` <a href="#" data-ev="${esc(r.path)}">evidence</a>`:'')]]);
+  document.querySelectorAll('[data-ev]').forEach(a=>a.onclick=async e=>{e.preventDefault();const p=a.dataset.ev.split('/');const ev=await api(`/api/trust/evidence/${p[1]}/${p[2].replace('.json','')}`);
+    $('#tev').style.display='block';$('#tev').innerHTML=`<b>${esc(ev.control)} ${esc(ev.title)}</b> · ${chip(ev.status)} · ${ev.date}<pre class="sql" style="color:var(--ink)">${esc(JSON.stringify(ev.evidence,null,2))}</pre>`});
+  const cells={};t.risks.forEach(r=>{(cells[r.likelihood+'-'+r.impact]=cells[r.likelihood+'-'+r.impact]||[]).push(r)});
+  let h='<div class="heat5">';for(let L=5;L>=1;L--){h+=`<div class="ax">${L}</div>`;for(let I=1;I<=5;I++){const sc=L*I,bg=sc>=15?'rgba(239,107,107,.45)':sc>=8?'rgba(242,184,75,.35)':'rgba(95,211,141,.22)';
+    h+=`<div style="background:${bg}">${(cells[L+'-'+I]||[]).map(r=>`<b title="${esc(r.title)}: ${esc(r.evidence)}">${r.id.replace('R-','R')}</b>`).join('')}</div>`}}
+  h+='<div class="ax"></div>'+[1,2,3,4,5].map(i=>`<div class="ax">${i}</div>`).join('')+'</div><p class="note">Up: likelihood. Across: impact. Hover a risk for its evidence.</p>';$('#theat').innerHTML=h;
+  tbl('#trisk',t.risks,[['id','ID'],['title','Risk'],['owner','Owner'],['score','Score',(v,r)=>`<b>${v}</b> <span class="note">${r.prev_score==null?'new':v>r.prev_score?'▲':v<r.prev_score?'▼':'='}</span>`],['evidence','Evidence']]);
+  tbl('#tinc',t.incidents.slice(0,12),[['sim_date','Date'],['site','Site'],['kind','Incident'],['severity','Severity',chip],['action','Action']]);
+  tbl('#tsoc',t.alerts.slice(0,12),[['sim_date','Date'],['kind','Alert'],['severity','Severity',chip],['target','Target'],['minutes_to_contain','Contained (min)',v=>v==null?'':v.toFixed(0)]]);
+  tbl('#tdr',t.drills,[['sim_date','Date'],['scenario','Scenario'],['rto_actual_min','RTO (min)'],['rto_target_min','Target'],['result','Result']]);
+  $('#tbk').textContent=t.backup?`Last backup ${t.backup.path}: ${(t.backup.bytes/1e6).toFixed(0)} MB, integrity ${t.backup.integrity}, restore ${t.backup.restore_ok?'passed':'FAILED'}.`:'';
+  tbl('#tleg',t.legal.slice(0,12),[['sim_date','Date'],['name','Customer'],['request','Request'],['decision','Outcome',chip],['note','Note']]);
+  tbl('#taud',t.audits,[['sim_date','Date'],['samples','Samples'],['exceptions','Exceptions'],['opinion','Opinion',v=>chip(v==='unqualified'?'pass':'exception')+' '+esc(v)]]);
+  $('#gvasof').textContent=g.as_of?'as of '+g.as_of:'not graded yet';
+  tbl('#gvcard',g.scorecards,[['agent','Agent'],['dept','Department'],['grade','Grade',chip],['runs','Runs (30d)'],['failed','Failed'],['decisions','Decisions (90d)'],['approved_pct','Approved %'],['outcome_score','Outcome score'],['kpi','KPI'],['kpi_ok','KPI met',v=>v==null?'':v?chip('pass'):chip('fail')]]);
+  tbl('#gvout',g.outcomes.slice(0,25),[['approved_on','Approved'],['title','Decision'],['agent','Filed by'],['check_on','Check on'],['verdict','Verdict',v=>v?chip(v):chip('pending')],['detail','Why']]);
+  tbl('#gvkind',g.by_kind,[['kind','Kind'],['n','Scored'],['avg_score','Avg score']]);
+  tbl('#gvbud',g.budgets,[['dept','Department'],['budget','Budget',sm],['actual','Actual',sm]]);
+}
+
 // ---------------- theme
 function themeUi(){const t=document.documentElement.dataset.theme||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');$('#themebtn').textContent=t==='light'?'☾ Dark':'☀ Light'}
 $('#themebtn').onclick=()=>{const cur=document.documentElement.dataset.theme||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'),nx=cur==='light'?'dark':'light';
@@ -645,7 +862,7 @@ async function askSend(){const q=$('#askin').value.trim();if(!q)return;$('#askin
     $('#askwait').outerHTML=`<div class="msg a">${inl(r.answer)}<div class="tl">${esc(r.engine||'')}${r.tools&&r.tools.length?' · used '+r.tools.map(t=>t.tool).join(', '):''}${r.note?' · '+esc(r.note):''}</div></div>`}
   catch(e){$('#askwait').outerHTML=`<div class="msg a">Error: ${esc(e.message)}</div>`}
   box.scrollTop=box.scrollHeight}
-function load(t){({overview,world:worldTab,business:businessTab,insights:insightsTab,crm:crmTab,network:networkTab,roles:rolesTab,graph:graphTab,explore:exploreTab,decisions:decisionsTab,reports,schedules:schedTab})[t]().catch(e=>toast(e.message))}
+function load(t){({overview,finance:financeTab,growth:growthTab,market:marketTab,trust:trustTab,world:worldTab,business:businessTab,insights:insightsTab,crm:crmTab,network:networkTab,roles:rolesTab,graph:graphTab,explore:exploreTab,decisions:decisionsTab,reports,schedules:schedTab})[t]().catch(e=>toast(e.message))}
 overview().catch(e=>toast(e.message));setInterval(()=>{if($('#overview').classList.contains('on'))overview().catch(()=>{})},20000);
 </script>
 </body>

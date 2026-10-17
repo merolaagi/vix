@@ -15,6 +15,8 @@ import heapq
 import json
 import math
 import random
+import threading
+import time
 
 from . import db
 
@@ -285,7 +287,23 @@ ORDER_KINDS = {
 # ---------------------------------------------------------------- revenue
 
 
+_LB_CACHE = threading.local()
+
+
 def lines_by_tenant() -> dict:
+    """Monthly charges by tenant and product line. Cached per thread until this thread writes to the database
+    or two seconds pass, so loops that ask for one tenant at a time do not recompute everyone."""
+    c = db.conn()
+    key = (c.total_changes, today())
+    hit = getattr(_LB_CACHE, "v", None)
+    if hit and hit[0] == key and time.monotonic() - hit[1] < 2.0:
+        return hit[2]
+    out = _lines_by_tenant()
+    _LB_CACHE.v = (key, time.monotonic(), out)
+    return out
+
+
+def _lines_by_tenant() -> dict:
     from . import world
     P = world.PRICES
     out: dict[int, dict[str, float]] = {}
@@ -443,6 +461,10 @@ def sla_window(days: int = 30) -> dict:
 # ---------------------------------------------------------------- renewals & churn
 
 
+RENEWAL_ADJUST = []   # fn(tid) -> (delta probability, {reason: value})
+ON_CONTRACT_EVENT = []  # fn(tid, event, mrr_before, mrr_after)
+
+
 def renewal_probability(tid, escalator):
     xc = db.scalar("select count(*) from cross_connects x join ports p on p.id=x.a_port where p.tenant=?", (tid,)) or 0
     since = (today_d() - dt.timedelta(days=90)).isoformat()
@@ -454,8 +476,15 @@ def renewal_probability(tid, escalator):
     except Exception:  # noqa: BLE001  (pre-v0.4 databases)
         outages = 0
     p = 0.86 + 0.015 * min(6, xc / 10) + 0.01 * min(3, clouds) - 0.04 * min(5, misses) - 0.03 * min(4, outages) - 0.02 * max(0, escalator - 3)
-    return max(0.5, min(0.99, p)), {"cross_connects": xc, "sla_misses_90d": misses, "cloud_connections": clouds,
-                                    "network_outages_90d": outages}
+    why = {"cross_connects": xc, "sla_misses_90d": misses, "cloud_connections": clouds, "network_outages_90d": outages}
+    for hook in RENEWAL_ADJUST:
+        try:
+            dp, w = hook(tid)
+            p += dp
+            why.update(w)
+        except Exception:  # noqa: BLE001
+            pass
+    return max(0.4, min(0.99, p)), why
 
 
 def release_tenant(tid, fraction: float) -> dict:
@@ -522,6 +551,8 @@ def run_renewals(rnd: random.Random) -> list[dict]:
         after = tenant_mrr(tid)
         db.execute("insert into contract_events(ts,sim_date,tenant,event,mrr_before,mrr_after,note) values(?,?,?,?,?,?,?)",
                    (db.now(), today(), tid, ev, round(before, 2), round(after, 2), note))
+        for hook in ON_CONTRACT_EVENT:
+            hook(tid, ev, before, after)
         events.append({"tenant": tid, "name": c["name"], "kind": c["kind"], "event": ev, "p_renew": round(p, 3),
                        "mrr_before": round(before), "mrr_after": round(after), "note": note, **why})
     return events

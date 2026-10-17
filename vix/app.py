@@ -4,10 +4,10 @@ from __future__ import annotations
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
-from . import __version__, armory, bi, chat, crm, db, graph, netinfra, products, roles, world
+from . import __version__, armory, bi, chat, crm, db, fin, graph, growth, market, netinfra, products, roles, trust, world
 from .company import charter as charter_mod
 from .company import engine
 from .config import STATIC_DIR
@@ -426,3 +426,193 @@ def chat_ask(body: dict = Body(...)):
     if not msg:
         raise HTTPException(400, "message is empty")
     return chat.answer(msg[:2000], body.get("history") or [])
+
+
+# ---------------------------------------------------------------- v0.6-0.9: finance, growth, market, trust, governance, portal
+
+import json as _json  # noqa: E402
+
+from .config import DATA_DIR as _DATA  # noqa: E402
+
+
+def _closed_rows(n=24):
+    return [{"period": m["period"], "revenue": round(m["income"]["revenue"]), "adj_ebitda": round(m["income"]["adj_ebitda"]),
+             "net_income": round(m["income"]["net_income"]), "affo": round(m["metrics"]["affo"]),
+             "affo_per_share": round(m["metrics"]["affo_per_share"], 3), "net_debt_to_ebitda": m["metrics"]["net_debt_to_ebitda"],
+             "cash": round(m["balance"]["assets"]["cash"]), "dso_days": m["metrics"]["dso_days"],
+             "balance_check": m["metrics"]["balance_check"]} for m in fin.closed_periods(n)]
+
+
+@app.get("/api/fin/summary")
+def fin_summary():
+    fin.init()
+    last = fin.closed_periods(1)
+    return {"kpis": fin.kpi_hook().get("finance"), "last_close": last[0] if last else None, "periods": _closed_rows(),
+            "aging": fin.ar_aging(), "debt": fin.debt_summary(), "forecast": fin.forecast(6),
+            "budget_vs_actual": fin.budget_vs_actual(last[0]["period"]) if last else [],
+            "dividends": db.rows("select * from fin_dividend order by id desc"),
+            "earnings": db.rows("select id, report, summary, started from runs where playbook='ir_earnings_pack' and status='done'"
+                                " and json_extract(summary,'$.published') is not null order by id desc limit 8"),
+            "fx": db.rows("select ccy, round(rate,4) rate, round(100*(rate/base-1),2) move_pct from fin_fx where ccy!='USD'")}
+
+
+@app.get("/api/fin/statements")
+def fin_statements(period: str = ""):
+    fin.init()
+    period = period or (fin.closed_periods(1)[0]["period"] if fin.closed_periods(1) else products.today()[:7])
+    return fin.statements(period)
+
+
+@app.get("/api/fin/invoices")
+def fin_invoices(status: str = "", tenant: int = 0, limit: int = 50):
+    fin.init()
+    q, a = ("select i.id, i.number, t.name, i.period, i.issue_date, i.due_date, i.currency, i.amount_usd, i.balance_usd, i.status,"
+            " i.disputed, i.dunning from fin_invoice i join tenants t on t.id=i.tenant where 1=1"), []
+    if status:
+        q, a = q + " and i.status=?", a + [status]
+    if tenant:
+        q, a = q + " and i.tenant=?", a + [tenant]
+    return db.rows(q + " order by i.id desc limit ?", tuple(a + [min(limit, 500)]))
+
+
+@app.get("/api/fin/quotes")
+def fin_quotes(limit: int = 40):
+    fin.init()
+    return db.rows("select q.sim_date, t.name, q.kind, q.metro, q.list_mrr, q.discount_pct, q.net_mrr, q.gm_pct, q.approval, q.status, q.note"
+                   " from fin_quote q join tenants t on t.id=q.tenant order by q.id desc limit ?", (min(limit, 500),))
+
+
+@app.get("/api/growth/summary")
+def growth_summary():
+    growth.init()
+    projects = db.rows("select * from dev_project order by status, stage_due")
+    for p in projects:
+        p["history"] = _json.loads(p["history"] or "[]")
+        p["roi"] = _json.loads(p["roi"] or "[]")
+    return {"summary": growth.summary(), "projects": projects, "outlook": growth.outlook(), "renewables": growth.renewables(),
+            "grid": db.rows("select * from dev_power order by metro"), "ppas": db.rows("select * from dev_ppa order by id desc"),
+            "rfps": db.rows("select * from dev_rfp order by id desc limit 20"), "stages": growth.STAGES}
+
+
+@app.get("/api/market/summary")
+def market_summary():
+    market.init()
+    comps = db.rows("select name, style, price_index, round(reputation,2) reputation, aggressiveness, presence from mkt_competitor")
+    for c in comps:
+        c["presence"] = _json.loads(c["presence"])
+    return {"competitors": comps, "events": db.rows("select * from mkt_competitor_event order by id desc limit 25"),
+            "winloss": market.winloss(30), "winloss_90": market.winloss(90), "nps": market.nps(), "ecosystem": market.ecosystem(),
+            "listings": market.listings()[:25], "partners": db.rows("select * from mkt_partner order by mrr_sourced desc"),
+            "personas": db.rows("select m.persona, count(*) n, round(avg(m.nps),1) avg_nps, sum(m.portal) portal from mkt_customer m"
+                                " join contracts c on c.tenant=m.tenant where c.status='active' group by m.persona order by n desc"),
+            "metal": {"position": market.metal_position(), "sunset": db.setting("metal_sunset"),
+                      "migration": db.rows("select status, count(*) n, round(sum(mrr_before)) before, round(sum(coalesce(mrr_after,0))) after"
+                                           " from mkt_migration group by status")}}
+
+
+@app.get("/api/trust/summary")
+def trust_summary():
+    trust.init()
+    latest = db.scalar("select max(sim_date) from cmp_result")
+    ctl = db.rows("select c.id, c.family, c.title, c.owner, c.frameworks, r.status, r.evidence, r.path from cmp_control c left join cmp_result r"
+                  " on r.id=(select max(id) from cmp_result x where x.control=c.id) order by c.id")
+    return {"readiness": db.setting("compliance_readiness"), "controls": ctl, "as_of": latest,
+            "audits": db.rows("select * from cmp_audit order by id desc limit 5"),
+            "risks": db.rows("select * from risk_register order by score desc"),
+            "incidents": db.rows("select * from sec_incident order by id desc limit 25"),
+            "alerts": db.rows("select * from soc_alert order by id desc limit 25"),
+            "drills": db.rows("select * from bcm_drill order by id desc limit 8"), "backup": db.setting("last_backup"),
+            "legal": db.rows("select l.sim_date, t.name, l.request, l.decision, l.risk, l.note from legal_review l join tenants t on t.id=l.tenant"
+                             " order by l.id desc limit 20")}
+
+
+@app.get("/api/trust/evidence/{date}/{control}")
+def trust_evidence(date: str, control: str):
+    import re as _re
+    if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) or not _re.fullmatch(r"[A-Z]{2}-\d{2}", control):
+        raise HTTPException(400, "bad evidence path")
+    f = _DATA / "evidence" / date / f"{control}.json"
+    if not f.exists():
+        raise HTTPException(404, "no evidence")
+    return _json.loads(f.read_text())
+
+
+@app.get("/api/gov/summary")
+def gov_summary():
+    trust.init()
+    latest = db.scalar("select max(sim_date) from gov_scorecard")
+    return {"scorecards": db.rows("select * from gov_scorecard where sim_date=? order by grade, agent", (latest,)), "as_of": latest,
+            "outcomes": db.rows("select * from gov_outcome order by approved_on desc limit 60"),
+            "by_kind": db.rows("select kind, count(*) n, round(avg(score),2) avg_score from gov_outcome where status='scored' and score is not null group by kind"),
+            "budgets": db.rows("select * from gov_budget where period=(select max(period) from gov_budget)")}
+
+
+# ---- customer portal: the operator issues a key; the customer's own API uses it
+
+@app.get("/portal")
+def portal_page():
+    return FileResponse(STATIC_DIR / "portal.html")
+
+
+@app.get("/api/portal/customers")
+def portal_customers(q: str = "", limit: int = 30):
+    market.init()
+    return db.rows("select t.id, t.name, t.kind, t.home_metro, m.persona, m.portal from tenants t join contracts c on c.tenant=t.id"
+                   " left join mkt_customer m on m.tenant=t.id where c.status='active' and t.name like ? order by t.name limit ?",
+                   (f"%{q}%", min(limit, 200)))
+
+
+@app.post("/api/portal/key")
+def portal_key(body: dict = Body(...)):
+    market.init()
+    tid = int(body.get("tenant") or 0)
+    if not db.one("select id from tenants where id=?", (tid,)):
+        raise HTTPException(404, "no such customer")
+    return {"tenant": tid, "api_key": market.issue_key(tid), "note": "shown once; the customer uses it as Authorization: Bearer <key>"}
+
+
+def _cust(authorization: str | None, x_vix_key: str | None) -> int:
+    key = (x_vix_key or "").strip() or ((authorization or "")[7:].strip() if (authorization or "").lower().startswith("bearer ") else "")
+    tid = market.tenant_for_key(key)
+    if not tid:
+        raise HTTPException(401, "invalid or missing API key")
+    return tid
+
+
+@app.get("/portal/api/v1/me")
+def papi_me(authorization: str | None = Header(None), x_vix_key: str | None = Header(None)):
+    return market.portal_view(_cust(authorization, x_vix_key))
+
+
+@app.get("/portal/api/v1/invoices")
+def papi_invoices(authorization: str | None = Header(None), x_vix_key: str | None = Header(None)):
+    return market.portal_view(_cust(authorization, x_vix_key))["invoices"]
+
+
+@app.get("/portal/api/v1/catalog")
+def papi_catalog(authorization: str | None = Header(None), x_vix_key: str | None = Header(None)):
+    _cust(authorization, x_vix_key)
+    metal_off = bool((db.setting("metal_sunset") or {}).get("announced"))
+    return {"products": {k: v for k, v in world.order_kinds().items() if not (metal_off and k == "metal")},
+            "metros": [m["code"] for m in db.rows("select code from metros order by code")],
+            "sites": [s["id"] for s in db.rows("select id from sites order by id")],
+            "clouds": [c["id"] for c in db.rows("select id from clouds order by id")],
+            "plans": list(world.METAL_PLANS), "request_kinds": market.REQUEST_KINDS}
+
+
+@app.post("/portal/api/v1/orders")
+def papi_order(body: dict = Body(...), authorization: str | None = Header(None), x_vix_key: str | None = Header(None)):
+    tid = _cust(authorization, x_vix_key)
+    try:
+        return market.portal_order(tid, body.get("kind", ""), body.get("params") or {})
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.post("/portal/api/v1/requests")
+def papi_request(body: dict = Body(...), authorization: str | None = Header(None), x_vix_key: str | None = Header(None)):
+    tid = _cust(authorization, x_vix_key)
+    try:
+        return market.request(tid, body.get("kind", ""), body.get("detail") or {}, channel="api")
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e

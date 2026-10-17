@@ -161,6 +161,55 @@ def t_search_reports(query: str, k: int = 3):
     return out
 
 
+def t_finance():
+    from . import fin
+    if not fin.opened():
+        return {"note": "books not opened yet"}
+    last = fin.closed_periods(1)
+    ag = fin.ar_aging()
+    ds = fin.debt_summary()
+    return {"cash": round(fin.balances()["cash"]), "receivables": ag["total"], "dso_days": ag["dso_days"], "on_credit_hold": ag["on_hold"],
+            "bonds": ds["bonds"], "revolver_drawn": ds["revolver_drawn"], "revolver_limit": ds["revolver_limit"],
+            "last_close": {"period": last[0]["period"], **{k: round(last[0]["income"][k]) for k in ("revenue", "adj_ebitda", "net_income")},
+                           "affo_per_share": round(last[0]["metrics"]["affo_per_share"], 3),
+                           "net_debt_to_ebitda": last[0]["metrics"]["net_debt_to_ebitda"]} if last else None,
+            "dividends": db.rows("select quarter, per_share, total_usd from fin_dividend order by id desc limit 2")}
+
+
+def t_growth():
+    from . import growth
+    s = growth.summary()
+    act = db.rows("select name, stage, stage_due, budget_usd, spent_usd from dev_project where status='active' order by stage_due limit 8")
+    rn = growth.renewables()
+    return {**s, "projects": act, "renewable_pct": rn["renewable_pct"], "renewable_target_pct": rn["target_pct"]}
+
+
+def t_market():
+    from . import market
+    wl = market.winloss(30)
+    return {"win_rate_30d": wl["win_rate"], "loss_reasons": wl["loss_reasons"][:4], "lost_to": wl["lost_to"][:3], "nps": market.nps(),
+            "metal_sunset": db.setting("metal_sunset")}
+
+
+def t_trust():
+    from . import trust
+    trust.init()
+    latest = db.scalar("select max(sim_date) from cmp_result")
+    return {"readiness": (db.setting("compliance_readiness") or {}).get("score"),
+            "failing_controls": db.rows("select distinct c.id, c.title, r.status from cmp_result r join cmp_control c on c.id=r.control where r.sim_date=?"
+                                        " and r.status in ('fail','exception')", (latest,)),
+            "top_risks": db.rows("select title, owner, score, evidence from risk_register order by score desc limit 3"),
+            "last_audit": db.one("select sim_date, opinion, exceptions from cmp_audit order by id desc limit 1")}
+
+
+def t_grades():
+    from . import trust
+    trust.init()
+    latest = db.scalar("select max(sim_date) from gov_scorecard")
+    rows = db.rows("select agent, dept, grade, runs, failed, outcome_score, kpi, kpi_ok from gov_scorecard where sim_date=? order by grade desc, failed desc", (latest,))
+    return {"as_of": latest, "worst": rows[:3], "best": rows[::-1][:3], "counts": {g: sum(1 for r in rows if r["grade"] == g) for g in "ABCD"}}
+
+
 TOOLS = {
     "company_kpis": (t_kpis, "Headline KPIs and the latest monthly close (MRR, EBITDA, costs, network, customers).", {}),
     "who_does": (t_roles, "Find which agent and department do a job or role (e.g. 'network automation', 'SLA', 'consent').",
@@ -178,6 +227,12 @@ TOOLS = {
     "open_decisions": (t_decisions, "Decisions waiting for the founder.", {}),
     "renewals_at_risk": (t_at_risk, "Customers whose contracts end soon, lowest renewal odds first.", {}),
     "search_reports": (t_search_reports, "Full-text search over every agent report.", {"query": {"type": "string"}}),
+    "finance_status": (t_finance, "Cash, receivables and DSO, debt and the revolver, the last month-end close (revenue, adjusted EBITDA, "
+                                  "net income, AFFO per share, leverage) and recent dividends.", {}),
+    "growth_status": (t_growth, "Construction projects, MW under construction, capex still to spend, renewable energy share.", {}),
+    "market_status": (t_market, "Win rate, why deals are lost and to which competitor, NPS, the bare-metal sunset.", {}),
+    "trust_status": (t_trust, "Compliance readiness and failing controls, the top risks, the last audit opinion.", {}),
+    "agent_grades": (t_grades, "Governance scorecards: which agents are graded best and worst, and why.", {}),
 }
 
 
@@ -270,6 +325,15 @@ def _answer_router(message):
             return {"answer": f"{top['agent']} in {top['department']}{extra}. Playbooks: {', '.join(top['playbooks'][:4])}."
                               + (f" Also involved: {', '.join(x['agent'] for x in r[1:3])}." if len(r) > 1 else ""), "tools": used}
     if re.search(r"\b(profit|loss|p&l|pnl|ebitda|margin|cost|costs|spend)\b", q):
+        from . import fin as _fin
+        if _fin.opened() and _fin.closed_periods(1):
+            f = call("finance_status")
+            lc = f["last_close"]
+            st = _fin.closed_periods(1)[0]["income"]
+            return {"answer": f"Last month-end close ({lc['period']}, from the general ledger): revenue {money(lc['revenue'])}, cost of revenue "
+                              f"{money(st['cost_of_revenue'])} (power {money(st['power'])}, site operations {money(st['site_operations'])}), "
+                              f"SG&A {money(st['sga'])}, adjusted EBITDA {money(lc['adj_ebitda'])}, depreciation {money(st['depreciation'])}, "
+                              f"interest {money(st['interest'])}, net income {money(lc['net_income'])}.", "tools": used}
         k = call("company_kpis")
         mm = call("money_map")
         c = k["last_close"]
@@ -315,6 +379,43 @@ def _answer_router(message):
         r = call("open_decisions")
         return {"answer": f"{r['open']} decisions wait for you" + (". Latest: " + "; ".join(f"#{d['id']} {d['title']} (from {d['agent']})" for d in r["latest"][:5]) if r["open"] else ".")
                           + (". Helm's board pack has a recommendation on each." if r["open"] else ""), "tools": used}
+    if re.search(r"\b(cash|debt|leverage|affo|ffo|dividends?|invoices?|receivables?|dso|overdue|bonds?|revolver|balance sheet|liquidity)\b", q):
+        r = call("finance_status")
+        if r.get("note"):
+            return {"answer": "The books are not open yet; run the billing step first.", "tools": used}
+        lc = r["last_close"]
+        return {"answer": f"Cash {money(r['cash'])}; receivables {money(r['receivables'])} (DSO {r['dso_days']} days, {r['on_credit_hold']} on credit hold). "
+                          f"Debt: {money(r['bonds'])} of notes, revolver {money(r['revolver_drawn'])} drawn of {money(r['revolver_limit'])}."
+                          + (f" Last close {lc['period']}: revenue {money(lc['revenue'])}, adjusted EBITDA {money(lc['adj_ebitda'])}, net income "
+                             f"{money(lc['net_income'])}, AFFO ${lc['affo_per_share']:.3f}/share, leverage {(lc['net_debt_to_ebitda'] or 0):.2f}x." if lc else "")
+                          + (f" Last dividend {r['dividends'][0]['quarter']}: ${r['dividends'][0]['per_share']:.3f}/share." if r["dividends"] else ""),
+                "tools": used}
+    if re.search(r"\b(projects?|construction|building|campus|ppas?|renewables?|grid|hyperscale|expansion)\b", q):
+        r = call("growth_status")
+        nxt = r["projects"][0] if r["projects"] else None
+        return {"answer": f"{r['active']} projects under way ({r['mw_under_construction']} MW), {money(r['budget_active'] - r['spent_active'])} still to spend; "
+                          f"{r['live']} delivered. Renewable energy {r['renewable_pct']}% vs {r['renewable_target_pct']}% target."
+                          + (f" Next milestone: {nxt['name']} finishes {nxt['stage']} on {nxt['stage_due']}." if nxt else ""), "tools": used}
+    if re.search(r"\b(compet\w*|los(e|ing|t) deals?|why .*los|nps|satisf\w*|marketplace|partners?|bare.?metal|sunset)\b", q):
+        r = call("market_status")
+        lr = ", ".join(f"{x['reason']} ({x['n']})" for x in r["loss_reasons"]) or "none"
+        lt = ", ".join(f"{x['competitor']} ({x['n']})" for x in r["lost_to"]) or "nobody"
+        return {"answer": f"Win rate over 30 days {(r['win_rate_30d'] or 0):.0%}. Losses by reason: {lr}; lost to {lt}. NPS {r['nps'].get('nps')}"
+                          + (f"; detractors cite {r['nps']['detractor_drivers'][0]['driver']}" if r["nps"].get("detractor_drivers") else "") + "."
+                          + (f" Bare metal is being retired (end of life {r['metal_sunset']['eol']})." if r["metal_sunset"] else ""), "tools": used}
+    if re.search(r"\b(risks?|compliance|audit|controls?|security|breach|backups?|drills?)\b", q):
+        r = call("trust_status")
+        tr = "; ".join(f"{x['title']} ({x['score']}, {x['owner']})" for x in r["top_risks"]) or "none scored yet"
+        fc = ", ".join(f"{x['id']} {x['title']}" for x in r["failing_controls"]) or "none"
+        return {"answer": f"Compliance readiness {r['readiness']}%; controls needing attention: {fc}. Top risks: {tr}."
+                          + (f" Last simulated audit {r['last_audit']['sim_date']}: {r['last_audit']['opinion']} opinion." if r["last_audit"] else ""),
+                "tools": used}
+    if re.search(r"\b(grades?|scorecards?|perform\w*|accountab\w*|worst agent|best agent)\b", q):
+        r = call("agent_grades")
+        w = ", ".join(f"{x['agent']} ({x['grade']}: {x['failed']} failed runs, KPI {x['kpi'] or 'n/a'} {'met' if x['kpi_ok'] else 'missed' if x['kpi_ok'] == 0 else ''})" for x in r["worst"])
+        b = ", ".join(f"{x['agent']} ({x['grade']})" for x in r["best"])
+        return {"answer": f"Agent grades as of {r['as_of']}: A {r['counts']['A']}, B {r['counts']['B']}, C {r['counts']['C']}, D {r['counts']['D']}. "
+                          f"Lowest: {w}. Highest: {b}.", "tools": used}
     if re.search(r"\b(sla|ticket|remote hands)\b", q):
         k = call("company_kpis")
         return {"answer": f"Remote-hands SLA over 30 days is {k['remote_hands_sla_30d']}%.", "tools": used}
@@ -367,12 +468,19 @@ def evaluate() -> list[dict]:
         ("Who is our top customer?", "crm_soql", top[0]["Name"] if top else ""),
         ("How many decisions are waiting for approval?", "open_decisions", f"{od} decisions"),
         ("How is the NOC connected to EBITDA?", "graph_path", "steps"),
-        ("What is our profit and loss?", "company_kpis", "EBITDA"),
+        ("What is our profit and loss?", "", "EBITDA"),
     ]
+    from . import fin as _fin
+    if _fin.opened():
+        golden.append(("How much cash do we have?", "finance_status", f"Cash {money(_fin.balances()['cash'])}"))
+    if db.one("select name from sqlite_master where name='risk_register'") and db.scalar("select count(*) from risk_register"):
+        golden.append(("What are our top risks?", "trust_status", db.scalar("select title from risk_register order by score desc limit 1")))
+    if db.one("select name from sqlite_master where name='mkt_winloss'"):
+        golden.append(("Why are we losing deals to competitors?", "market_status", "Win rate"))
     out = []
     for qn, tool, expect in golden:
         r = _answer_router(qn)
         tools = [t["tool"] for t in r["tools"]]
-        ok = tool in tools and expect.lower() in r["answer"].lower()
+        ok = (not tool or tool in tools) and expect.lower() in r["answer"].lower()
         out.append({"question": qn, "tool": ",".join(tools), "expected": expect, "ok": ok, "answer": r["answer"][:200]})
     return out

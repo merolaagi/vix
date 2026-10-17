@@ -116,6 +116,36 @@ for _d in DEPARTMENTS:
     _d.setdefault("reports_to", {"net": "cno"}.get(_d["id"], "exec"))
 DEPT = {d["id"]: d for d in DEPARTMENTS}
 
+# ---------- extension points (v0.6+): later modules register here instead of patching the core ----------
+DECISION_EFFECTS: dict = {}   # kind -> fn(detail, decision_row) -> effect dict
+RECOMMENDERS: dict = {}       # kind -> fn(decision) -> (verdict, why)
+ON_DECIDE: list = []          # fn(decision_row, approved, effect) after any decision is resolved
+DAILY_STEPS: list = []        # playbooks run every simulated day after the core steps
+WEEKLY_STEPS: list = []       # playbooks run every 7th simulated day in fast-forward
+BOARD_CHIEFS: list = []       # (playbook, fn(run) -> (bullet markdown, [risks])) for the CEO board pack
+KPI_HOOKS: list = []          # fn() -> dict merged into kpis()
+BOOT: list = []               # fn() run at startup (create tables, open books, add schedules)
+DEMAND_HOOKS: list = []       # fn(tenant_row, kind_weights) -> new weights, or None to skip this tenant today
+
+
+def add_department(d: dict, before: str | None = None):
+    """Register a department (idempotent). Keeps DEPT in sync."""
+    if d["id"] in DEPT:
+        DEPT[d["id"]].update(d)
+        return
+    d.setdefault("tier", "department")
+    d.setdefault("kpis", [])
+    idx = next((i for i, x in enumerate(DEPARTMENTS) if x["id"] == before), len(DEPARTMENTS)) if before else len(DEPARTMENTS)
+    DEPARTMENTS.insert(idx, d)
+    DEPT[d["id"]] = d
+
+
+def add_schedules(pairs):
+    have = {s["playbook"] for s in db.rows("select playbook from schedules")}
+    for name, every in pairs:
+        if name not in have and name in PLAYBOOKS:
+            schedule_add(name, every)
+
 
 def org_chart() -> dict:
     """Chain of command: founder -> CEO -> chiefs -> departments."""
@@ -175,6 +205,7 @@ class Ctx:
         sub = Ctx.__new__(Ctx)
         sub.run_id, sub.pb, sub.params, sub.agent, sub._log = self.run_id, pb, params or {}, DEPT[pb.department]["agent"], []
         sub.log = lambda msg: None
+        sub.is_inline = True
         summary, _ = pb.fn(sub)
         return summary
 
@@ -297,7 +328,9 @@ def decide(did: int, approve: bool, note: str = "") -> dict:
         raise ValueError(f"decision {did} is already {d['status']}")
     detail = json.loads(d["detail"] or "{}")
     effect = None
-    if approve:
+    if approve and d["kind"] in DECISION_EFFECTS:
+        effect = DECISION_EFFECTS[d["kind"]](detail, d)
+    elif approve:
         if d["kind"] == "build_hall":
             effect = world.add_hall(detail["site"], int(detail.get("cabinets", 260)), bool(detail.get("liquid")))
         elif d["kind"] == "network_capex":
@@ -331,7 +364,12 @@ def decide(did: int, approve: bool, note: str = "") -> dict:
             effect = {"hall": detail["hall"], "added_units": int(detail.get("units", 1))}
     db.execute("update decisions set status=?, resolved_ts=?, note=? where id=?",
                ("approved" if approve else "rejected", time.time(),
-                (note + (f" | applied: {json.dumps(effect)}" if effect else "")).strip(" |"), did))
+                (note + (f" | applied: {json.dumps(effect, default=str)}" if effect else "")).strip(" |"), did))
+    for hook in ON_DECIDE:
+        try:
+            hook({**d, "detail": detail}, approve, effect)
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
     return {"decision": did, "status": "approved" if approve else "rejected", "effect": effect}
 
 
@@ -396,6 +434,8 @@ def seed_v5_schedules():
     from . import eng_playbooks
     eng_playbooks.init()
     graph.init()
+    for fn in BOOT:
+        fn()
     have = {s["playbook"] for s in db.rows("select playbook from schedules")}
     for name, every in (("cto_engineering_review", "weekly sun 05:20"), ("sre_slo_review", "weekly sun 05:35"),
                         ("aiops_predict", "daily 03:40"), ("crm_data_cloud", "weekly wed 04:10"),
@@ -446,7 +486,7 @@ def kpis():
     fac = sum(t["facility_kw"] for t in tele)
     fin = db.setting("fin_last") or {}
     week = time.time() - 7 * 86400
-    return {
+    out = {
         "metros": db.scalar("select count(*) from metros"),
         "sites": db.scalar("select count(*) from sites"),
         "halls": len(hs),
@@ -478,6 +518,12 @@ def kpis():
         "network_standard": {"rs_filtering": bool(db.setting("rs_filtering", False)),
                              "edge_filtering": bool(db.setting("edge_filtering", False))},
     }
+    for hook in KPI_HOOKS:
+        try:
+            out.update(hook() or {})
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+    return out
 
 
 def _net_kpis():
@@ -511,3 +557,7 @@ from . import playbooks  # noqa: E402,F401  (registers every playbook)
 from . import net_playbooks  # noqa: E402,F401
 from . import eng_playbooks  # noqa: E402,F401
 from . import graph_playbooks  # noqa: E402,F401
+from . import fin_playbooks  # noqa: E402,F401
+from . import growth_playbooks  # noqa: E402,F401
+from . import market_playbooks  # noqa: E402,F401
+from . import trust_playbooks  # noqa: E402,F401

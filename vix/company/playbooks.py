@@ -11,6 +11,7 @@ import time
 
 from .. import bi, crm, db, netsim, products, routerlab, thermal, world
 from . import charter as charter_mod
+from . import engine as _engine
 from .engine import decision_add, decisions, kpis, playbook
 
 
@@ -70,7 +71,14 @@ def sales_demand_cycle(ctx):
                 tid = db.scalar("select t.id from tenants t join contracts c on c.tenant=t.id"
                                 " where c.status='active' order by random() limit 1")
             t = db.one("select * from tenants where id=?", (tid,))
-            kind = rnd.choices(list(kinds), list(kinds.values()))[0]
+            w = dict(kinds)
+            for hook in _engine.DEMAND_HOOKS:
+                if w is None:
+                    break
+                w = hook(t, w)
+            if not w:
+                continue
+            kind = rnd.choices(list(w), list(w.values()))[0]
             home = t["home_metro"] if rnd.random() < 0.6 else rnd.choice(metros)
             if kind == "cabinets":
                 params = {"metro": home, "cabinets": rnd.choice([1, 2, 2, 4, 6, 10, 20]),
@@ -407,62 +415,7 @@ def energy_report(ctx):
             "top_emitter": rows[0]["metro"]}, md
 
 
-@playbook("fin_monthly_close", "Monthly close", "finance",
-          "Revenue by product and metro, power cost from telemetry, site opex, depreciation, EBITDA.")
-def fin_monthly_close(ctx):
-    rev = world.revenue_breakdown()
-    tele = _latest_telemetry()
-    metros = {m["code"]: m for m in db.rows("select * from metros")}
-    power_cost, capex, per_metro = 0.0, 0.0, {}
-    for h in world.halls():
-        t = tele.get(h["id"])
-        fac_kw = t["facility_kw"] if t else h["it_load_kw"] * 1.45
-        c = fac_kw * 730 * metros[h["metro"]]["power_usd_kwh"]
-        power_cost += c
-        capex += h["build_capex_usd"]
-        pm = per_metro.setdefault(h["metro"], {"metro": h["metro"], "power_cost": 0.0, "cabinets_sold": 0, "cabinets_total": 0})
-        pm["power_cost"] += c
-        pm["cabinets_sold"] += h["cabinets_sold"]
-        pm["cabinets_total"] += h["cabinets_total"]
-    lb = products.lines_by_tenant()
-    for pm in per_metro.values():
-        pm["revenue"] = sum(sum(lb.get(r["tenant"], {}).values()) * r["share"] for r in db.rows(
-            "select p.tenant, cast(sum(p.cabinets) as real) / (select sum(cabinets) from placements where tenant=p.tenant) share"
-            " from placements p join halls h on h.id=p.hall join sites s on s.id=h.site where s.metro=? group by p.tenant",
-            (pm["metro"],)))
-        pm["util"] = round(pm["cabinets_sold"] / pm["cabinets_total"], 3)
-        pm["revenue"], pm["power_cost"] = round(pm["revenue"]), round(pm["power_cost"])
-    sites = db.scalar("select count(*) from sites")
-    opex = sites * world.SITE_OPEX_MONTH
-    techs = db.scalar("select coalesce(sum(techs),0) from sites") or 0
-    labour = techs * products.TECH_COST_MONTH
-    since30 = (products.today_d() - dt.timedelta(days=30)).isoformat()
-    credits = db.scalar("select coalesce(sum(credits_usd),0) from net_incident where sim_date>?", (since30,)) or 0
-    n_dev = db.scalar("select count(*) from net_device") or 0
-    net_support = n_dev * 900.0
-    dep = capex / 240
-    ebitda = rev["total"] - credits - power_cost - opex - labour - net_support
-    margin = round(ebitda / rev["total"], 3) if rev["total"] else None
-    snap = {"sim_date": products.today(), "mrr": rev["total"], "power_cost": round(power_cost), "opex": opex, "tech_labour": round(labour), "sla_credits": round(credits), "net_support": round(net_support), "ebitda": round(ebitda),
-            "ebitda_margin": margin, "depreciation": round(dep), "ebit": round(ebitda - dep), "ts": time.time()}
-    db.set_setting("fin_last", snap)
-    ctx.log(f"MRR {usd(rev['total'])}, EBITDA margin {margin:.1%}")
-    md = ("## P&L (one month)\n\n" + table([
-        {"line": "Revenue", "usd": usd(rev["total"])},
-        {"line": "Network SLA credits (last 30 days)", "usd": "-" + usd(credits)},
-        {"line": f"Network support and spares ({n_dev} devices)", "usd": "-" + usd(net_support)},
-        {"line": "Power", "usd": "-" + usd(power_cost)},
-        {"line": "Site opex", "usd": "-" + usd(opex)},
-        {"line": f"Remote-hands technicians ({techs} posts, 24x7)", "usd": "-" + usd(labour)},
-        {"line": "**EBITDA**", "usd": f"**{usd(ebitda)}** ({margin:.1%})"},
-        {"line": "Depreciation (20-yr straight line)", "usd": "-" + usd(dep)},
-        {"line": "EBIT", "usd": usd(ebitda - dep)}], ["line", "usd"]) +
-        "\n## Revenue by product\n\n" + table([{"product": k, "usd": usd(v)} for k, v in rev.items() if k != "total"],
-                                              ["product", "usd"]) +
-        "\n## By metro\n\n" + table(sorted(per_metro.values(), key=lambda r: -r["revenue"]),
-                                    ["metro", "revenue", "power_cost", "util"]) +
-        "\n_List prices are illustrative; metro revenue allocates each tenant's MRR by where its cabinets sit._\n")
-    return snap, md
+# fin_monthly_close moved to fin_playbooks.py (v0.6)
 
 
 # ---------------------------------------------------------------- R&D
@@ -731,6 +684,11 @@ def cdo_data_audit(ctx):
 
 def _recommend(d):
     det = d["detail"]
+    if d["kind"] in _engine.RECOMMENDERS:
+        try:
+            return _engine.RECOMMENDERS[d["kind"]](d)
+        except Exception as e:  # noqa: BLE001
+            return "review", f"rule failed: {e}"
     if d["kind"] == "build_hall":
         metro = det["site"][:3]
         kind = "ai_cabinets" if det.get("liquid") else "cabinets"
@@ -787,6 +745,11 @@ def _recommend(d):
         return "hold", "units were repaired since this was filed; redundancy is back without new capex"
     if d["kind"] == "network_standard":
         return "approve", f"research evidence: {det.get('evidence', '')}"
+    if d["kind"] in _engine.RECOMMENDERS:
+        try:
+            return _engine.RECOMMENDERS[d["kind"]](d)
+        except Exception as e:  # noqa: BLE001
+            return "review", f"rule failed: {e}"
     return "review", "no rule for this kind"
 
 
@@ -832,13 +795,22 @@ def ceo_board_pack(ctx):
         risks.append(f"Network escalation from Meridian: {x}")
     for x in (cto["summary"] or {}).get("escalations", []):
         risks.append(f"Engineering escalation from Lattice: {x}")
+    extra_lines = []
+    for pb_name, fn in _engine.BOARD_CHIEFS:
+        try:
+            r = ctx.child(pb_name)
+            line, rk = fn(r)
+            extra_lines.append(line)
+            risks.extend(rk)
+        except Exception as e:  # noqa: BLE001
+            extra_lines.append(f"- **{pb_name}** failed: {e}\n")
     recs = []
     for d in decisions("open"):
         verdict, why = _recommend(d)
         recs.append({"id": d["id"], "from": d["agent"], "decision": d["title"], "Helm recommends": verdict, "why": why})
     ctx.log(f"board pack: {len(recs)} decisions, {len(risks)} risks, numbers consistent={consistent}")
     md = (f"Week ending **{products.today()}** (simulated). Prepared by Helm (CEO) from the Chief Operator, Chief Scientist "
-          f"and Chief Data Officer. " + ("Atlas's figures tie to the warehouse." if consistent else
+          f"and the other chiefs. " + ("Atlas's figures tie to the warehouse." if consistent else
                                          "**Atlas's MRR does not tie to the warehouse; Vega has been asked to explain.**") +
           "\n\n## Headline\n\n" + table(head, ["metric", "value", "vs 7 days"]) +
           f"\n## From the chiefs\n\n- **Atlas (operations):** {a.get('filed', 0)} decisions filed this review, "
@@ -852,7 +824,7 @@ def ceo_board_pack(ctx):
           f"- **Lattice (engineering):** {(cto['summary'] or {}).get('steps')} reviews, {(cto['summary'] or {}).get('failed')} failed; "
           f"escalations: {', '.join((cto['summary'] or {}).get('escalations') or []) or 'none'}. Report: {cto['report']}\n"
           f"- **Vega (data):** quality {v.get('score')}, {v.get('fail', 0)} fail, {v.get('warn', 0)} warn"
-          + (f", self-healed {', '.join(v['healed'])}" if v.get("healed") else "") + f". Report: {vega['report']}\n"
+          + (f", self-healed {', '.join(v['healed'])}" if v.get("healed") else "") + f". Report: {vega['report']}\n" + "".join(extra_lines) +
           "\n## Risks\n\n" + ("".join(f"- {r}\n" for r in risks) or "- None worth your time this week.\n") +
           "\n## Decisions for you\n\n" + table(recs, ["id", "from", "decision", "Helm recommends", "why"]) +
           "\nApprove or reject each one in HQ (Decisions) or ask Claude to call company_decide.\n")
@@ -873,6 +845,7 @@ def exec_operating_cycle(ctx):
              "metal_fulfill_orders", "cx_ticket_desk", "noc_watch", "nos_certify", "netauto_compliance", "change_manage",
              "net_deploy_migrate", "ps_projects", "accounts_renewals", "ops_daily_health", "energy_report", "crm_sync",
              "bi_nightly_load"]
+    steps = steps[:-2] + [x for x in _engine.DAILY_STEPS if x in _engine.PLAYBOOKS] + steps[-2:]
     days = max(1, min(365, ctx.p("days", 1, int)))
 
     def physics():
@@ -907,7 +880,7 @@ def exec_operating_cycle(ctx):
         out = {name: ctx.inline(name) for name in steps}
         if (d + 1) % 7 == 0:
             ctx.inline("exec_weekly_review")
-            for wk in ("cno_network_review", "crm_data_cloud", "itsm_sync", "net_inventory_audit"):
+            for wk in ["cno_network_review", "crm_data_cloud", "itsm_sync", "net_inventory_audit"] + list(_engine.WEEKLY_STEPS):
                 ctx.inline(wk)
         row = {"day": day, "orders": out["sales_demand_cycle"]["orders"],
                "new_logos": out["sales_demand_cycle"]["new_tenants"],
