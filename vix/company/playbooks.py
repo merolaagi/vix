@@ -52,7 +52,8 @@ def sales_demand_cycle(ctx):
     sites = [s["id"] for s in db.rows("select id from sites")]
     ai_metros = sorted({h["metro"] for h in world.halls() if h.get("cooling_type") == "liquid"}) or metros
     kinds = {"cabinets": .14, "ai_cabinets": .025, "port": .10, "cross_connect": .26, "vc": .12,
-             "cloud_connection": .12, "cloud_router": .03, "edge_device": .06, "ix_port": .04, "metal": .07}
+             "cloud_connection": .12, "cloud_router": .03, "edge_device": .06, "ix_port": .04, "metal": .07,
+             "internet_access": .05}
     placed, new_tenants = [], []
     pipe = {"won": 0, "lost": 0, "advanced": 0}
     for _ in range(days):
@@ -95,6 +96,8 @@ def sales_demand_cycle(ctx):
             elif kind == "edge_device":
                 params = {"metro": home, "role": rnd.choice(products.EDGE_ROLES),
                           "size": rnd.choice(["small", "medium", "medium", "large", "xlarge"]), "ha": rnd.random() < 0.4}
+            elif kind == "internet_access":
+                params = {"metro": home, "commit_mbps": rnd.choice([100, 200, 500, 1000, 2000, 10000])}
             elif kind == "ix_port":
                 params = {"metro": home, "speed_g": rnd.choice([10, 100, 100, 400] if t["kind"] != "enterprise" else [1, 10])}
             else:
@@ -140,7 +143,7 @@ def _fulfil(ctx, kinds, label):
           "Provision pending ports, cross-connects, fabric virtual circuits, cloud connections and "
           "exchange ports; retry the waitlist.")
 def ix_fulfill_orders(ctx):
-    return _fulfil(ctx, ["port", "cross_connect", "vc", "cloud_connection", "ix_port"], "interconnection")
+    return _fulfil(ctx, ["port", "cross_connect", "vc", "cloud_connection", "ix_port", "internet_access"], "interconnection")
 
 
 @playbook("digital_fulfill_orders", "Provision digital services", "digital",
@@ -536,6 +539,7 @@ def rnd_research_cycle(ctx):
         a = ((c["summary"] or {}).get("after") or {})
         hj.append({"filtering": "both" if rs else "none", "hijacked_routes": a.get("hijacked_routes_in_use")})
     sw = ctx.child("rnd_router_study", {})
+    sdn = ctx.child("sdn_inference_study", {})
     cool = ctx.child("rnd_cooling_study", {})
     best = (cool["summary"] or {}).get("best_metros", [])
     design = (sw["summary"] or {}).get("design", {})
@@ -558,6 +562,8 @@ def rnd_research_cycle(ctx):
           f"{design.get('memory')}, about {design.get('est_power_w')} W. Details in {sw['report']}.\n"
           f"\n## AI cooling\n\nDirect-to-chip liquid is the cheapest and cleanest way to run AI load; best metros "
           f"for the next AI hall: **{', '.join(best)}**. Details in {cool['report']}.\n"
+          f"\n## AI inference networking\n\nMesh recommends `{(sdn['summary'] or {}).get('best')}` routing for inference traffic. "
+          f"Details in {sdn['report']}.\n"
           f"\n## Standard\n\nCurrent: {std}. " +
           (f"Filed decision **#{proposal}** to adopt both filters; the founder approves it." if proposal else
            "No change proposed.") + "\n")
@@ -793,6 +799,7 @@ def ceo_board_pack(ctx):
     euler = ctx.child("rnd_research_cycle")
     vega = ctx.child("cdo_data_audit")
     mer = ctx.child("cno_network_review")
+    cto = ctx.child("cto_engineering_review")
     a, e, v, n = atlas["summary"] or {}, euler["summary"] or {}, vega["summary"] or {}, mer["summary"] or {}
     mrr = bi.metric("mrr")["value"] or 0
     trend = bi.metric("mrr_trend", 30)["value"]
@@ -823,6 +830,8 @@ def ceo_board_pack(ctx):
         risks.append(f"Data escalation from Vega: {x}")
     for x in n.get("escalations", []):
         risks.append(f"Network escalation from Meridian: {x}")
+    for x in (cto["summary"] or {}).get("escalations", []):
+        risks.append(f"Engineering escalation from Lattice: {x}")
     recs = []
     for d in decisions("open"):
         verdict, why = _recommend(d)
@@ -840,6 +849,8 @@ def ceo_board_pack(ctx):
           f"- **Meridian (network):** availability {n.get('availability_30d')}% over 30 days, {n.get('incidents_30d')} incidents, "
           f"MTTR {n.get('mttr_30d')} min, {n.get('critical_cve_devices')} devices on vulnerable firmware, live readiness: "
           f"{n.get('readiness') or 'not assessed'}. Report: {mer['report']}\n"
+          f"- **Lattice (engineering):** {(cto['summary'] or {}).get('steps')} reviews, {(cto['summary'] or {}).get('failed')} failed; "
+          f"escalations: {', '.join((cto['summary'] or {}).get('escalations') or []) or 'none'}. Report: {cto['report']}\n"
           f"- **Vega (data):** quality {v.get('score')}, {v.get('fail', 0)} fail, {v.get('warn', 0)} warn"
           + (f", self-healed {', '.join(v['healed'])}" if v.get("healed") else "") + f". Report: {vega['report']}\n"
           "\n## Risks\n\n" + ("".join(f"- {r}\n" for r in risks) or "- None worth your time this week.\n") +
@@ -859,8 +870,9 @@ def ceo_board_pack(ctx):
           {"days": {"type": "int", "default": 1}})
 def exec_operating_cycle(ctx):
     steps = ["sales_demand_cycle", "ops_fulfill_space", "ix_fulfill_orders", "digital_fulfill_orders",
-             "metal_fulfill_orders", "cx_ticket_desk", "noc_watch", "change_manage", "accounts_renewals",
-             "ops_daily_health", "energy_report", "crm_sync", "bi_nightly_load"]
+             "metal_fulfill_orders", "cx_ticket_desk", "noc_watch", "nos_certify", "netauto_compliance", "change_manage",
+             "net_deploy_migrate", "ps_projects", "accounts_renewals", "ops_daily_health", "energy_report", "crm_sync",
+             "bi_nightly_load"]
     days = max(1, min(365, ctx.p("days", 1, int)))
 
     def physics():
@@ -895,7 +907,8 @@ def exec_operating_cycle(ctx):
         out = {name: ctx.inline(name) for name in steps}
         if (d + 1) % 7 == 0:
             ctx.inline("exec_weekly_review")
-            ctx.inline("cno_network_review")
+            for wk in ("cno_network_review", "crm_data_cloud", "itsm_sync", "net_inventory_audit"):
+                ctx.inline(wk)
         row = {"day": day, "orders": out["sales_demand_cycle"]["orders"],
                "new_logos": out["sales_demand_cycle"]["new_tenants"],
                "tickets": out["cx_ticket_desk"]["tickets"], "sla_pct": out["cx_ticket_desk"]["sla_pct"],

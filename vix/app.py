@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
-from . import __version__, armory, bi, crm, db, netinfra, products, world
+from . import __version__, armory, bi, chat, crm, db, graph, netinfra, products, roles, world
 from .company import charter as charter_mod
 from .company import engine
 from .config import STATIC_DIR
@@ -20,6 +20,7 @@ async def lifespan(_app):
     engine.seed_schedules()
     engine.seed_v3_schedules()
     engine.seed_v4_schedules()
+    engine.seed_v5_schedules()
     stop = threading.Event()
     t = threading.Thread(target=engine.scheduler_loop, args=(stop,), daemon=True)
     t.start()
@@ -335,3 +336,93 @@ def net_kpis():
 @app.get("/api/org")
 def org():
     return engine.org_chart()
+
+
+# ---------------------------------------------------------------- v0.5: roles, ServiceNow, graph, Explore, Ask vix
+
+
+@app.get("/api/roles")
+def roles_catalog():
+    return roles.catalog()
+
+
+@app.get("/api/now/table/{table}")
+def snow(table: str, sysparm_query: str = "", sysparm_limit: int = 50):
+    from .company import eng_playbooks
+    try:
+        return eng_playbooks.snow_table(table, sysparm_query, sysparm_limit)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.get("/api/graph/stats")
+def graph_stats():
+    return graph.stats()
+
+
+@app.get("/api/graph/search")
+def graph_search(q: str, limit: int = 15):
+    return graph.search(q, limit)
+
+
+@app.get("/api/graph/neighborhood")
+def graph_neighborhood(id: str, depth: int = 1, limit: int = 80):
+    return graph.neighborhood(id, depth, limit)
+
+
+@app.get("/api/graph/path")
+def graph_path(a: str, b: str):
+    return graph.path(a, b)
+
+
+@app.get("/api/graph/money")
+def graph_money():
+    return graph.money_map()
+
+
+@app.post("/api/graph/rebuild")
+def graph_rebuild():
+    return {"run_id": engine.start("graph_sync", {}, "web")}
+
+
+@app.post("/api/graph/cypher")
+def graph_cypher(body: dict = Body(...)):
+    try:
+        return graph.cypher(body.get("query", ""), body.get("params") or {})
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.get("/api/bi/explore/model")
+def explore_model():
+    return bi.explore_model()
+
+
+@app.post("/api/bi/explore")
+def explore_run(spec: dict = Body(...)):
+    try:
+        return bi.explore(spec)
+    except (ValueError, KeyError) as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.post("/api/bi/explore/pin")
+def explore_pin(body: dict = Body(...)):
+    try:
+        return bi.pin_explore(body["spec"], body.get("title") or "Exploration", body.get("dashboard") or "explore",
+                              body.get("chart") or "bar")
+    except (ValueError, KeyError) as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.get("/api/chat/engine")
+def chat_engine():
+    return {"engine": chat.engine_name()}
+
+
+@app.post("/api/chat")
+def chat_ask(body: dict = Body(...)):
+    msg = (body.get("message") or "").strip()
+    if not msg:
+        raise HTTPException(400, "message is empty")
+    return chat.answer(msg[:2000], body.get("history") or [])

@@ -12,7 +12,7 @@ import time
 
 from mcp.server.mcpserver import MCPServer
 
-from . import __version__, armory, bi, crm, db, netdrivers, netinfra, netsim, products, routerlab, thermal, world
+from . import __version__, armory, bi, chat, crm, db, graph, netdrivers, netinfra, netsim, products, roles, routerlab, thermal, world
 from .company import charter as charter_mod
 from .company import engine
 from .config import MCP_PORT
@@ -415,6 +415,86 @@ def net_request_live_control(kind: str, hostname: str | None = None, enable: boo
     return {"decision": did, "next": "the founder approves or rejects it (HQ Decisions or company_decide)"}
 
 
+# ---------- v0.5: roles, graph, explore, ITSM, assistant ----------
+
+@mcp.tool()
+def roles_catalog() -> dict:
+    """The 20 engineering roles (software and network) mapped to the department, agent and playbooks that perform
+    them, with whether each playbook has run successfully."""
+    return roles.catalog()
+
+
+@mcp.tool()
+def graph_stats() -> dict:
+    """Company knowledge graph size by node label and relationship type, plus Neo4j sync status."""
+    return graph.stats()
+
+
+@mcp.tool()
+def graph_search(text: str, limit: int = 15) -> list[dict]:
+    """Find graph nodes by name (departments, agents, customers, products, P&L lines, sites, devices, incidents)."""
+    return graph.search(text, limit)
+
+
+@mcp.tool()
+def graph_neighborhood(name: str, depth: int = 1, limit: int = 60) -> dict:
+    """Everything connected to one node, up to depth 3."""
+    return graph.neighborhood(name, depth, limit)
+
+
+@mcp.tool()
+def graph_path(a: str, b: str) -> dict:
+    """Shortest chain of relationships between two things, e.g. 'Sentinel' and 'EBITDA', or a customer and a department."""
+    return graph.path(a, b)
+
+
+@mcp.tool()
+def graph_money_map() -> dict:
+    """Per department: monthly revenue it operates and costs it owns, from the graph."""
+    return graph.money_map()
+
+
+@mcp.tool()
+def graph_cypher(query: str, params: dict | None = None) -> dict:
+    """Read-only Cypher against Neo4j (vix nodes are labelled VixNode + Vix<Label>, e.g. VixDepartment, VixCustomer,
+    VixPnLLine). Writes are refused."""
+    return graph.cypher(query, params)
+
+
+@mcp.tool()
+def bi_explore_model() -> dict:
+    """Explore sources with their measures and dimensions."""
+    return bi.explore_model()
+
+
+@mcp.tool()
+def bi_explore(spec: dict) -> dict:
+    """Self-service warehouse query: {source, measures:[..], dims:[..], filters:[{field, op (= != > < >= <= in contains), value}], days, sort,
+    desc, limit}. Example: {"source":"revenue","measures":["MRR"],"dims":["segment"]}."""
+    return bi.explore(spec)
+
+
+@mcp.tool()
+def bi_pin_explore(spec: dict, title: str, dashboard: str = "explore", chart: str = "bar") -> dict:
+    """Save an Explore query as a dashboard tile (chart: bar | line | table)."""
+    return bi.pin_explore(spec, title, dashboard, chart)
+
+
+@mcp.tool()
+def snow_table(table: str, sysparm_query: str = "", limit: int = 50) -> dict:
+    """ServiceNow-shaped ITSM tables (incident, change_request, problem, cmdb_ci) kept by Tally.
+    sysparm_query: field=value, field!=value, fieldLIKEtext joined by ^."""
+    from .company import eng_playbooks
+    return eng_playbooks.snow_table(table, sysparm_query, limit)
+
+
+@mcp.tool()
+def ask_vix(question: str) -> dict:
+    """Ask the in-house assistant (local model via Ollama if running, else the built-in router). Returns the answer
+    and the tools it used."""
+    return chat.answer(question)
+
+
 class _TokenGate:
     """ASGI wrapper used when VIX_MCP_TOKEN is set. A request is let in if either
     - its path is /mcp/<token> (the token is part of the connector URL), or
@@ -477,6 +557,8 @@ def main():
 
     db.init()
     world.seed()
+    from .company import engine as _engine
+    _engine.seed_v5_schedules()
     token = os.environ.get("VIX_MCP_TOKEN", "").strip()
     public_host = os.environ.get("VIX_MCP_PUBLIC_HOST", "").strip()
     security = None

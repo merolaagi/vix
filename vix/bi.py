@@ -259,7 +259,9 @@ def save_dashboard(slug: str, spec: dict) -> dict:
     if not slug.replace("_", "").replace("-", "").isalnum():
         raise ValueError("slug: letters, digits, - and _ only")
     for t in spec.get("tiles", []):
-        if t.get("metric") not in METRICS:
+        if t.get("explore"):
+            explore(t["explore"])
+        elif t.get("metric") not in METRICS:
             raise ValueError(f"unknown metric {t.get('metric')}")
     DASH_DIR.mkdir(parents=True, exist_ok=True)
     (DASH_DIR / f"{slug}.json").write_text(json.dumps(spec, indent=2))
@@ -270,8 +272,25 @@ def dashboard(slug: str, days: int = 90) -> dict:
     d = dashboards().get(slug)
     if not d:
         raise ValueError(f"no dashboard {slug}; one of {list(dashboards())}")
-    return {**d, "slug": slug, "days": days, "tiles": [{**t, "data": metric(t["metric"], t.get("days", days))}
-                                                         for t in d["tiles"]]}
+    tiles = []
+    for t in d["tiles"]:
+        if t.get("explore"):
+            r = explore(t["explore"])
+            m0 = r["measures"][0]
+            d0 = r["dims"][0] if r["dims"] else None
+            if t.get("chart") == "kpi":
+                val = r["rows"][0][m0] if r["rows"] else None
+                kind = "scalar"
+            elif t.get("chart") == "line" and d0:
+                val, kind = [{"x": x[d0], "y": x[m0]} for x in r["rows"]], "series"
+            else:
+                val, kind = r["rows"], "table"
+            tiles.append({**t, "data": {"name": "explore", "title": t.get("title") or f"{m0} by {d0 or 'total'}",
+                                        "unit": r["units"][m0], "kind": kind, "days": t["explore"].get("days", days),
+                                        "value": val, "as_of": r["as_of"]}})
+        else:
+            tiles.append({**t, "data": metric(t["metric"], t.get("days", days))})
+    return {**d, "slug": slug, "days": days, "tiles": tiles}
 
 
 # ---------------------------------------------------------------- exports
@@ -342,3 +361,124 @@ def status() -> dict:
     return {"warehouse": str(WH_PATH), "last_load": wrows("select * from load_log order by date desc limit 1"),
             "days_loaded": wscalar("select count(*) from load_log"),
             "tables": {t: wscalar(f"select count(*) from {t}") for t in DIM_TABLES + FACT_TABLES}}
+
+
+# ---------------------------------------------------------------- Explore: Tableau-style semantic layer
+
+SEMANTIC = {
+    "revenue": {"label": "Revenue (MRR snapshots)", "from": "fact_revenue_daily f left join dim_tenant d on d.tenant=f.tenant",
+                "date": "f.date", "snapshot": True,
+                "measures": {"MRR": ("round(sum(f.mrr))", "usd"), "Customers": ("count(distinct f.tenant)", "count")},
+                "dims": {"date": "f.date", "month": "substr(f.date,1,7)", "product": "f.product", "segment": "d.kind",
+                         "home metro": "d.home_metro", "customer": "d.name", "customer status": "d.status"}},
+    "operations": {"label": "Data halls (daily snapshots)", "from": "fact_ops_daily f", "date": "f.date", "snapshot": True,
+                   "measures": {"IT kW": ("round(sum(f.it_kw))", "kw"), "Facility kW": ("round(sum(f.facility_kw))", "kw"),
+                                "PUE": ("round(sum(f.facility_kw)/sum(f.it_kw),3)", "ratio"),
+                                "Cabinets sold": ("sum(f.cabinets_sold)", "count"),
+                                "Cabinet utilisation %": ("round(100.0*sum(f.cabinets_sold)/sum(f.cabinets_total),1)", "pct")},
+                   "dims": {"date": "f.date", "month": "substr(f.date,1,7)", "metro": "f.metro", "site": "f.site", "hall": "f.hall",
+                            "cooling": "f.cooling"}},
+    "tickets": {"label": "Remote-hands tickets", "from": "fact_tickets_daily f", "date": "f.date", "snapshot": False,
+                "measures": {"Tickets": ("sum(f.tickets)", "count"), "SLA met %": ("round(100.0*sum(f.met)/sum(f.tickets),2)", "pct"),
+                             "Billed": ("round(sum(f.billed))", "usd")},
+                "dims": {"date": "f.date", "month": "substr(f.date,1,7)", "site": "f.site", "ticket kind": "f.kind"}},
+    "pipeline": {"label": "Sales pipeline (daily snapshots)", "from": "fact_pipeline_daily f", "date": "f.date", "snapshot": True,
+                 "measures": {"Opportunities": ("sum(f.n)", "count"), "Pipeline MRR": ("round(sum(f.mrr))", "usd")},
+                 "dims": {"date": "f.date", "type": "f.type", "stage": "f.stage"}},
+    "bookings": {"label": "Bookings (closed opportunities)", "from": "fact_bookings_daily f", "date": "f.date", "snapshot": False,
+                 "measures": {"Won": ("sum(f.won)", "count"), "Lost": ("sum(f.lost)", "count"), "Won MRR": ("round(sum(f.won_mrr))", "usd"),
+                              "Win rate %": ("round(100.0*sum(f.won)/nullif(sum(f.won)+sum(f.lost),0),1)", "pct")},
+                 "dims": {"date": "f.date", "month": "substr(f.date,1,7)", "type": "f.type"}},
+    "contracts": {"label": "Contract events", "from": "fact_contract_events f left join dim_tenant d on d.tenant=f.tenant",
+                  "date": "f.date", "snapshot": False,
+                  "measures": {"Events": ("count(*)", "count"), "MRR before": ("round(sum(f.mrr_before))", "usd"),
+                               "MRR after": ("round(sum(f.mrr_after))", "usd"),
+                               "Net retention %": ("round(100.0*sum(f.mrr_after)/nullif(sum(f.mrr_before),0),1)", "pct")},
+                  "dims": {"date": "f.date", "month": "substr(f.date,1,7)", "event": "f.event", "segment": "d.kind"}},
+    "energy": {"label": "Energy & carbon", "from": "fact_energy_daily f", "date": "f.date", "snapshot": False,
+               "measures": {"IT MWh": ("round(sum(f.it_mwh),1)", "mwh"), "Facility MWh": ("round(sum(f.facility_mwh),1)", "mwh"),
+                            "tCO2": ("round(sum(f.tco2),1)", "t")},
+               "dims": {"date": "f.date", "month": "substr(f.date,1,7)", "metro": "f.metro"}},
+    "network": {"label": "Network incidents", "from": "fact_network_daily f", "date": "f.date", "snapshot": False,
+                "measures": {"Incidents": ("sum(f.incidents)", "count"), "Customer-impacting": ("sum(f.customer_impacting)", "count"),
+                             "Outage service-minutes": ("round(sum(f.outage_service_minutes))", "min"),
+                             "SLA credits": ("round(sum(f.credits))", "usd"), "Changes done": ("sum(f.changes_done)", "count")},
+                "dims": {"date": "f.date", "month": "substr(f.date,1,7)"}},
+}
+OPS = {"=": "=", "!=": "!=", ">": ">", "<": "<", ">=": ">=", "<=": "<="}
+
+
+def explore_model() -> dict:
+    return {k: {"label": v["label"], "measures": {m: u for m, (_, u) in v["measures"].items()}, "dims": list(v["dims"]),
+                "snapshot": v["snapshot"]} for k, v in SEMANTIC.items()}
+
+
+def explore(spec: dict) -> dict:
+    """spec: {source, measures: [..], dims: [..], filters: [{field, op, value}], days, sort: field, desc, limit}.
+    Only fields from the semantic model are accepted, so the SQL is always safe. Snapshot sources without a date
+    dimension use the latest day (or the last day of each month when grouped by month)."""
+    src = SEMANTIC.get(spec.get("source"))
+    if not src:
+        raise ValueError(f"source must be one of {list(SEMANTIC)}")
+    meas = spec.get("measures") or [next(iter(src["measures"]))]
+    dims = spec.get("dims") or []
+    for m in meas:
+        if m not in src["measures"]:
+            raise ValueError(f"unknown measure {m}; {list(src['measures'])}")
+    for d in dims:
+        if d not in src["dims"]:
+            raise ValueError(f"unknown dimension {d}; {list(src['dims'])}")
+    sel = [f"{src['dims'][d]} as \"{d}\"" for d in dims] + [f"{src['measures'][m][0]} as \"{m}\"" for m in meas]
+    where, args = [], []
+    days = spec.get("days")
+    if days:
+        where.append(f"{src['date']} > (select date(max(date), '-{int(days)} day') from {src['from'].split()[0]})")
+    if src["snapshot"]:
+        if "date" in dims:
+            pass
+        elif "month" in dims:
+            where.append(f"{src['date']} in (select max(date) from {src['from'].split()[0]} group by substr(date,1,7))")
+        else:
+            where.append(f"{src['date']} = (select max(date) from {src['from'].split()[0]})")
+    for f in spec.get("filters") or []:
+        field, op, val = f.get("field"), f.get("op", "="), f.get("value")
+        if field not in src["dims"]:
+            raise ValueError(f"cannot filter on {field}")
+        expr = src["dims"][field]
+        if op == "in":
+            vals = val if isinstance(val, list) else [v.strip() for v in str(val).split(",")]
+            where.append(f"{expr} in ({','.join('?' * len(vals))})")
+            args += vals
+        elif op == "contains":
+            where.append(f"{expr} like ?")
+            args.append(f"%{val}%")
+        elif op in OPS:
+            where.append(f"{expr} {OPS[op]} ?")
+            args.append(val)
+        else:
+            raise ValueError(f"bad operator {op}")
+    sql = f"select {', '.join(sel)} from {src['from']}"
+    if where:
+        sql += " where " + " and ".join(where)
+    if dims:
+        sql += " group by " + ", ".join(src["dims"][d] for d in dims)
+    sort = spec.get("sort")
+    if sort and sort in (dims + meas):
+        sql += f" order by \"{sort}\" {'desc' if spec.get('desc', True) else 'asc'}"
+    elif dims and dims[0] in ("date", "month"):
+        sql += f" order by \"{dims[0]}\""
+    elif meas:
+        sql += f" order by \"{meas[0]}\" desc"
+    sql += f" limit {min(int(spec.get('limit') or 200), 2000)}"
+    rows = wrows(sql, tuple(args))
+    return {"source": spec["source"], "dims": dims, "measures": meas, "units": {m: src["measures"][m][1] for m in meas},
+            "rows": rows, "sql": sql, "as_of": wscalar("select max(date) from fact_revenue_daily")}
+
+
+def pin_explore(spec: dict, title: str, slug: str = "explore", chart: str = "bar") -> dict:
+    """Add an Explore query to a dashboard as a tile (creates the dashboard if needed)."""
+    explore(spec)
+    d = dashboards().get(slug) or {"title": "Saved explorations", "owner": "Founder", "tiles": []}
+    d = {k: v for k, v in d.items() if k != "slug"}
+    d["tiles"] = [t for t in d.get("tiles", []) if t.get("title") != title] + [{"title": title, "explore": spec, "chart": chart}]
+    return save_dashboard(slug, d)

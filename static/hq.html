@@ -18,7 +18,7 @@ header{display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:
 nav{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
 nav button{background:none;border:1px solid transparent;color:var(--dim);padding:6px 12px;border-radius:6px;cursor:pointer;font:500 13px var(--sans)}
 nav button.on{color:var(--ink);border-color:var(--line);background:var(--panel)}
-main{padding:20px;max-width:1400px;margin:0 auto}
+main{padding:20px 20px 80px;max-width:1400px;margin:0 auto}
 .tab{display:none}.tab.on{display:block}
 h2{font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.12em;color:var(--dim);margin:26px 0 10px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
@@ -65,13 +65,30 @@ th{color:var(--dim);font-weight:500;font-size:12px}td.n{font-family:var(--mono);
 .tile svg{width:100%;height:150px;display:block}.tile svg text{fill:var(--dim);font:10px var(--mono)}
 .toast{position:fixed;bottom:16px;right:16px;background:var(--panel2);border:1px solid var(--accent);padding:10px 14px;border-radius:8px;display:none;max-width:360px;z-index:9}
 @media(max-width:800px){.split{grid-template-columns:1fr}main{padding:12px}}
+.chips{display:flex;gap:4px;flex-wrap:wrap}.chip{font:11px var(--mono);padding:1px 6px;border-radius:4px;background:var(--panel2);border:1px solid var(--line)}
+.chip.ok{color:var(--green);border-color:#2c5b40}.chip.no{color:var(--amber);border-color:#5a4a1f}
+.gwrap{display:grid;grid-template-columns:1fr 320px;gap:12px}@media(max-width:900px){.gwrap{grid-template-columns:1fr}}
+#gsvg{width:100%;height:520px;background:var(--panel);border:1px solid var(--line);border-radius:10px;display:block;touch-action:none}
+#gsvg text{fill:var(--ink);font:10px var(--mono);pointer-events:none}#gsvg line{stroke:#33414f}#gsvg circle{cursor:pointer;stroke:var(--bg);stroke-width:1.5}
+.legend{display:flex;gap:10px;flex-wrap:wrap;font:11px var(--mono);color:var(--dim);margin:6px 0}.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px}
+.form{display:flex;gap:8px;flex-wrap:wrap;align-items:end}.form label{font-size:11px;color:var(--dim);display:flex;flex-direction:column;gap:3px}
+.mlist{display:flex;gap:8px;flex-wrap:wrap}.mlist label{flex-direction:row;align-items:center;gap:4px;font:12px var(--mono);color:var(--ink)}
+pre.sql{font:11px var(--mono);color:var(--dim);white-space:pre-wrap;margin:8px 0 0}
+#askbtn{position:fixed;right:18px;bottom:18px;z-index:8;background:var(--accent);color:#04201d;border:0;border-radius:22px;padding:10px 16px;font:600 13px var(--sans);cursor:pointer;box-shadow:0 4px 18px #0008}
+#ask{position:fixed;right:18px;bottom:70px;width:min(420px,calc(100vw - 32px));height:min(560px,calc(100vh - 110px));background:var(--panel);border:1px solid var(--line);border-radius:12px;z-index:8;display:none;flex-direction:column;box-shadow:0 8px 30px #000a}
+#ask.on{display:flex}#ask .hd{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+#ask .msgs{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
+.msg{padding:8px 11px;border-radius:10px;max-width:92%;font-size:13px;white-space:pre-wrap;word-wrap:break-word}.msg.u{align-self:flex-end;background:#1d3b39}.msg.a{align-self:flex-start;background:var(--panel2)}
+.msg .tl{color:var(--dim);font:10px var(--mono);margin-top:4px}
+#ask form{display:flex;gap:6px;padding:10px;border-top:1px solid var(--line)}#ask input{flex:1;font:13px var(--sans);padding:8px}
+.sugg{display:flex;gap:4px;flex-wrap:wrap;padding:0 12px 8px}.sugg a{font-size:11px;background:var(--panel2);padding:2px 7px;border-radius:10px;text-decoration:none}
 </style>
 </head>
 <body>
 <header>
   <div><div class="brand"><b>vix</b> HQ</div><div class="tag" id="tagline">Virtual Interconnection eXchange · simulated</div></div>
   <nav>
-    <button data-t="overview" class="on">Overview</button><button data-t="world">World</button><button data-t="business">Business</button><button data-t="insights">Insights</button><button data-t="crm">CRM</button><button data-t="network">Network</button>
+    <button data-t="overview" class="on">Overview</button><button data-t="world">World</button><button data-t="business">Business</button><button data-t="insights">Insights</button><button data-t="crm">CRM</button><button data-t="network">Network</button><button data-t="roles">Roles</button><button data-t="graph">Graph</button><button data-t="explore">Explore</button>
     <button data-t="decisions">Decisions <span id="dcount"></span></button><button data-t="reports">Reports</button>
     <button data-t="schedules">Schedules</button>
   </nav>
@@ -139,6 +156,49 @@ th{color:var(--dim);font-weight:500;font-size:12px}td.n{font-family:var(--mono);
       <select id="netstatus"><option value="">any status</option><option>up</option><option>degraded</option><option>down</option></select></h2>
     <div class="tw"><table id="devs"></table></div>
   </section>
+  <section class="tab" id="roles">
+    <p class="note" id="rolenote" style="margin-top:14px"></p>
+    <div class="tw"><table id="roletbl"></table></div>
+  </section>
+  <section class="tab" id="graph">
+    <div class="kpis" id="gk" style="margin-top:14px"></div>
+    <h2>Explore connections</h2>
+    <div class="card form" style="margin-bottom:10px">
+      <label>Center on<input id="gq" list="gql" value="Network Operations Center" style="min-width:240px"></label><datalist id="gql"></datalist>
+      <label>Depth<select id="gdepth"><option>1</option><option selected>2</option></select></label>
+      <button class="b go" id="ggo">Show</button>
+      <span style="width:16px"></span>
+      <label>Path from<input id="ga" value="Sentinel"></label><label>to<input id="gb" value="EBITDA"></label><button class="b go" id="gpath">Find path</button>
+      <button class="b" id="grebuild">Rebuild graph</button>
+    </div>
+    <p class="note" id="gpathout"></p>
+    <div class="legend" id="glegend"></div>
+    <div class="gwrap"><svg id="gsvg"></svg><div class="md" id="gdetail" style="max-height:520px"><p class="note">Click a node to see its details; double-click to center on it.</p></div></div>
+    <h2>Money map: who touches the P&amp;L</h2><div class="tw"><table id="gmoney"></table></div>
+    <h2>Neo4j (read-only Cypher)</h2>
+    <div class="card"><p class="note" id="neostat"></p>
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><input id="cy" style="flex:1;min-width:260px" value="MATCH (d:VixDepartment)-[:ACCOUNTABLE_FOR]->(c:VixPnLLine) RETURN d.name AS department, c.name AS cost, c.monthly_usd AS usd ORDER BY usd DESC">
+      <button class="b go" id="cygo">Run</button></div><p class="note" id="cynote"></p><div class="tw"><table id="cyres"></table></div></div>
+  </section>
+  <section class="tab" id="explore">
+    <div class="card" style="margin-top:14px">
+      <div class="form">
+        <label>Source<select id="xsrc"></select></label>
+        <label>Group by<select id="xd1"></select></label><label>then by<select id="xd2"></select></label>
+        <label>Last<select id="xdays"><option value="">all days</option><option value="30">30 days</option><option value="90">90 days</option><option value="365">365 days</option></select></label>
+        <label>Chart<select id="xchart"><option>bar</option><option>line</option><option>table</option></select></label>
+        <label>Limit<input id="xlimit" value="50" size="4"></label>
+      </div>
+      <div style="margin-top:10px" class="note">Measures</div><div class="mlist" id="xmeas"></div>
+      <div class="form" style="margin-top:10px"><label>Filter<select id="xff"></select></label><label>op<select id="xfo"><option>=</option><option>!=</option><option>contains</option><option>in</option><option>&gt;</option><option>&lt;</option></select></label>
+        <label>value<input id="xfv" placeholder="e.g. enterprise"></label>
+        <button class="b go" id="xrun">Run</button><label>Tile title<input id="xtitle" placeholder="My chart"></label><button class="b" id="xpin">Pin to dashboard</button></div>
+    </div>
+    <p class="note" id="xnote"></p>
+    <div class="tile" id="xchartout" style="margin-top:10px"></div>
+    <div class="tw" style="margin-top:10px"><table id="xres"></table></div>
+    <pre class="sql" id="xsql"></pre>
+  </section>
   <section class="tab" id="decisions"><h2>Decisions filed by the super agents</h2><div id="declist"></div></section>
   <section class="tab" id="reports"><div class="split"><div class="list" id="replist"></div><div class="md" id="repview"><p class="note">Pick a report.</p></div></div></section>
   <section class="tab" id="schedules">
@@ -151,6 +211,11 @@ th{color:var(--dim);font-weight:500;font-size:12px}td.n{font-family:var(--mono);
     </div>
   </section>
 </main>
+<button id="askbtn">Ask vix</button>
+<div id="ask"><div class="hd"><div><b>Ask vix</b> <span class="note" id="askeng"></span></div><button class="b" id="askx">✕</button></div>
+  <div class="msgs" id="askmsgs"><div class="msg a">Ask anything about the company: revenue, costs and EBITDA, customers, renewals, the network, decisions, who does what, or how two things are connected.</div></div>
+  <div class="sugg"><a href="#">What is our profit and loss?</a><a href="#">Who handles network outages?</a><a href="#">How is Sentinel connected to EBITDA?</a><a href="#">Which customers might churn?</a><a href="#">Revenue by product</a></div>
+  <form id="askf"><input id="askin" placeholder="Ask a question…" autocomplete="off"><button class="b go">Send</button></form></div>
 <div class="toast" id="toast"></div>
 <script>
 const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -344,7 +409,102 @@ async function networkTab(){
 async function netDevices(){
   let ds=await api('/api/net/devices'+($('#netrole').value?'?role='+$('#netrole').value:''));const st=$('#netstatus').value;if(st)ds=ds.filter(d=>d.status===st);
   $('#devs').innerHTML='<tr><th>Hostname</th><th>Site</th><th>Role</th><th>Model</th><th>Firmware</th><th>Driver</th><th>Status</th></tr>'+ds.slice(0,200).map(d=>`<tr><td><b>${esc(d.hostname)}</b></td><td>${d.site}</td><td>${d.role}</td><td class="note">${esc(d.vendor)} ${esc(d.model)}</td><td class="note">${esc(d.os_version)}</td><td class="note">${d.mode==='sim'?'sim':`<b>${d.mode}</b> ${esc(d.platform)}`}</td><td><span class="st ${d.status==='up'?'done':d.status==='degraded'?'running':'failed'}">${d.status}</span></td></tr>`).join('')+(ds.length>200?`<tr><td class="note" colspan="7">${ds.length-200} more…</td></tr>`:'')}
-function load(t){({overview,world:worldTab,business:businessTab,insights:insightsTab,crm:crmTab,network:networkTab,decisions:decisionsTab,reports,schedules:schedTab})[t]().catch(e=>toast(e.message))}
+
+// ---------------- Roles
+async function rolesTab(){
+  const c=await api('/api/roles');
+  $('#rolenote').innerHTML=`${c.total} engineering roles from <i>${esc(c.source)}</i>. <b>${c.covered}/${c.total}</b> have an agent and playbooks; <b>${c.exercised}/${c.total}</b> have run successfully.`;
+  $('#roletbl').innerHTML='<tr><th>#</th><th>Role</th><th>Kind</th><th>Done by</th><th>What the agent does</th><th>Playbooks · last run</th></tr>'+c.roles.map(r=>`<tr><td class="n">${r.ref}</td><td><b>${esc(r.title)}</b><div class="note">${esc(r.req)}</div></td><td>${r.kind}</td>
+   <td><span class="agent">${esc(r.agent)}</span><div class="note">${esc(r.department)}</div></td><td class="note">${r.duties.map(esc).join('<br>')}</td>
+   <td><div class="chips">${r.playbooks.map(p=>`<span class="chip ${p.last_run&&p.last_run.status==='done'?'ok':'no'}">${esc(p.playbook)}${p.last_run?` · ${p.last_run.report?`<a href="#" data-rep="${p.last_run.report}">${p.last_run.status}</a>`:p.last_run.status}`:' · not run'}</span>`).join('')}</div></td></tr>`).join('')}
+
+// ---------------- Graph
+const GCOL={Founder:'#f2b84b',Department:'#a78bfa',Agent:'#4fd1c5',Playbook:'#5b7fa6',Role:'#c084fc',Product:'#5fd38d',PnLLine:'#f2b84b',Metro:'#94a3b8',Site:'#7dd3fc',Hall:'#64748b',Vendor:'#fb923c',Device:'#38bdf8',BackboneLink:'#0ea5e9',Customer:'#ef6b6b',Incident:'#f43f5e',Decision:'#facc15',Opportunity:'#86efac'};
+let G={nodes:[],edges:[]};
+async function graphTab(){
+  const [st,mm]=await Promise.all([api('/api/graph/stats'),api('/api/graph/money')]);
+  const lab=Object.fromEntries(st.by_label.map(x=>[x.label,x.n]));
+  $('#gk').innerHTML=[['Nodes',st.nodes.toLocaleString()],['Relationships',st.edges.toLocaleString()],['Departments',lab.Department||0],['Customers',lab.Customer||0],['Devices',lab.Device||0],['Incidents (90d)',lab.Incident||0],
+    ['Neo4j',st.neo4j?.synced?'synced':'not synced']].map(([l,v])=>`<div class="kpi"><div class="v" style="font-size:16px">${esc(v)}</div><div class="l">${l}</div></div>`).join('');
+  $('#neostat').textContent=st.neo4j?.synced?`Synced to ${st.neo4j.uri}: ${st.neo4j.nodes} nodes, ${st.neo4j.edges} relationships, all labelled VixNode (other graphs in the same database are untouched).`:`Neo4j: ${st.neo4j?.reason||'not synced yet'}. The graph below works without it.`;
+  $('#gmoney').innerHTML='<tr><th>Department</th><th>Revenue operated / mo</th><th>Costs owned / mo</th></tr>'+mm.departments.map(d=>`<tr><td><a href="#" data-gn="${esc(d.department)}">${esc(d.department)}</a></td><td class="n">${money(d.revenue_operated)}</td><td class="n">${money(d.costs_owned)}</td></tr>`).join('');
+  $('#glegend').innerHTML=Object.entries(GCOL).filter(([k])=>lab[k]).map(([k,c])=>`<span><i style="background:${c}"></i>${k}</span>`).join('');
+  if(!G.nodes.length)gShow()}
+async function gShow(center){
+  if(center)$('#gq').value=center;
+  const n=await api(`/api/graph/neighborhood?id=${encodeURIComponent($('#gq').value)}&depth=${$('#gdepth').value}&limit=70`);
+  if(!n.center){toast('Nothing in the graph matches that');return}
+  G=n;gDraw(n.center);gDetail(n.center)}
+function gDraw(center){
+  const svg=$('#gsvg'),W=svg.clientWidth||800,H=520;svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const N=G.nodes.map((n,i)=>({...n,x:W/2+Math.cos(i*2.4)*(40+i*4),y:H/2+Math.sin(i*2.4)*(40+i*3),vx:0,vy:0}));const ix=Object.fromEntries(N.map((n,i)=>[n.id,i]));
+  const E=G.edges.filter(e=>e.src in ix&&e.dst in ix);
+  const adj={};E.forEach(e=>{(adj[e.src]=adj[e.src]||[]).push(e.dst);(adj[e.dst]=adj[e.dst]||[]).push(e.src)});
+  const ring1=[...new Set(adj[center]||[])].filter(i=>i in ix).sort((x,y)=>(N[ix[x]].label>N[ix[y]].label?1:-1));
+  const placed=new Set([center]);const cx=W/2,cy=H/2,R1=Math.min(W,H)*.27,R2=Math.min(W*.47,H*.47);
+  const cn=N[ix[center]];if(cn){cn.x=cx;cn.y=cy}
+  ring1.forEach((id,k)=>{const t=2*Math.PI*k/Math.max(ring1.length,1)-Math.PI/2,n=N[ix[id]];n.x=cx+W*.24*Math.cos(t);n.y=cy+H*.26*Math.sin(t);n.t=t;placed.add(id)});
+  const outer=[];ring1.forEach(id=>(adj[id]||[]).forEach(o=>{if(!placed.has(o)&&o in ix){placed.add(o);outer.push([o,N[ix[id]].t])}}));
+  N.forEach(n=>{if(!placed.has(n.id)){placed.add(n.id);outer.push([n.id,0])}});
+  outer.sort((p,q)=>p[1]-q[1]).forEach(([id],k)=>{const t=2*Math.PI*k/Math.max(outer.length,1)-Math.PI/2,n=N[ix[id]];n.x=cx+W*.44*Math.cos(t);n.y=cy+H*.45*Math.sin(t)});
+  svg.innerHTML=E.map(e=>{const p=N[ix[e.src]],q=N[ix[e.dst]];return `<line x1="${p.x}" y1="${p.y}" x2="${q.x}" y2="${q.y}"><title>${esc(p.name)} -${e.type}-> ${esc(q.name)}</title></line>`}).join('')+
+    N.map(n=>`<g><circle data-gid="${esc(n.id)}" cx="${n.x}" cy="${n.y}" r="${n.id===center?11:n.label==='Department'||n.label==='PnLLine'?8:6}" fill="${GCOL[n.label]||'#aaa'}"><title>${esc(n.label)}: ${esc(n.name)}</title></circle>
+    ${N.length<45||n.id===center||['Department','PnLLine','Agent','Product'].includes(n.label)?`<text x="${n.x<W/2-20?n.x-9:n.x+9}" y="${n.y+3}" text-anchor="${n.x<W/2-20?'end':'start'}">${esc(n.name.length>26?n.name.slice(0,25)+'…':n.name)}</text>`:''}</g>`).join('');
+  svg.querySelectorAll('circle').forEach(c=>{c.onclick=()=>gDetail(c.dataset.gid);c.ondblclick=()=>gShow(c.dataset.gid)})}
+function gDetail(id){
+  const n=G.nodes.find(x=>x.id===id);if(!n)return;
+  const rel=G.edges.filter(e=>e.src===id||e.dst===id).map(e=>{const o=G.nodes.find(x=>x.id===(e.src===id?e.dst:e.src));return `<li>${e.src===id?'→':'←'} <b>${e.type}</b> <a href="#" data-gn="${esc(o?.id)}">${esc(o?.name||'?')}</a> <span class="note">${o?.label||''}</span></li>`});
+  $('#gdetail').innerHTML=`<div class="agent" style="color:${GCOL[n.label]}">${esc(n.label)}</div><h3 style="margin:2px 0 8px">${esc(n.name)}</h3><table>${Object.entries(n.props||{}).map(([k,v])=>`<tr><td class="note">${esc(k)}</td><td>${esc(typeof v==='number'&&Math.abs(v)>1e4?money(v):typeof v==='object'?JSON.stringify(v):v)}</td></tr>`).join('')}</table>
+   <h2>Connections shown (${rel.length})</h2><ul style="padding-left:16px;margin:0">${rel.slice(0,60).join('')}</ul>`}
+document.addEventListener('click',e=>{const a=e.target.closest('[data-gn]');if(a){e.preventDefault();gShow(a.dataset.gn)}});
+$('#ggo').onclick=()=>gShow();$('#gq').onkeydown=e=>{if(e.key==='Enter')gShow()};
+$('#gq').oninput=async()=>{const v=$('#gq').value;if(v.length<2)return;const r=await api('/api/graph/search?q='+encodeURIComponent(v)+'&limit=12').catch(()=>[]);$('#gql').innerHTML=r.map(x=>`<option value="${esc(x.name)}">${x.label}</option>`).join('')};
+$('#gpath').onclick=async()=>{const p=await api(`/api/graph/path?a=${encodeURIComponent($('#ga').value)}&b=${encodeURIComponent($('#gb').value)}`);
+  if(!p.path){$('#gpathout').textContent='No path: '+(p.note||'');return}
+  $('#gpathout').innerHTML=`<b>${esc(p.from)}</b> → <b>${esc(p.to)}</b> in ${p.hops} steps: `+[esc(p.path[0].from)].concat(p.path.map(s=>`<span class="chip">${esc(s.rel)}</span> ${esc(s.to)}`)).join(' ');
+  gShow($('#ga').value)};
+$('#grebuild').onclick=async()=>{const r=await api('/api/graph/rebuild',{method:'POST'});toast('Loom is rebuilding the graph (run #'+r.run_id+')');setTimeout(()=>{G={nodes:[],edges:[]};graphTab()},4000)};
+$('#cygo').onclick=async()=>{try{const r=await api('/api/graph/cypher',{method:'POST',body:JSON.stringify({query:$('#cy').value})});$('#cynote').textContent=r.rows.length+' rows';$('#cyres').innerHTML=r.rows.length?'<tr>'+r.columns.map(c=>`<th>${esc(c)}</th>`).join('')+'</tr>'+r.rows.map(x=>'<tr>'+r.columns.map(c=>`<td>${esc(typeof x[c]==='object'?JSON.stringify(x[c]):x[c])}</td>`).join('')+'</tr>').join(''):''}catch(e){$('#cynote').textContent='Error: '+e.message;$('#cyres').innerHTML=''}};
+
+// ---------------- Explore
+let XM=null;
+async function exploreTab(){
+  if(!XM){XM=await api('/api/bi/explore/model');$('#xsrc').innerHTML=Object.entries(XM).map(([k,v])=>`<option value="${k}">${esc(v.label)}</option>`).join('');$('#xsrc').onchange=xSource;xSource()}}
+function xSource(){const s=XM[$('#xsrc').value];
+  const opts='<option value="">—</option>'+s.dims.map(d=>`<option>${esc(d)}</option>`).join('');
+  $('#xd1').innerHTML=opts;$('#xd2').innerHTML=opts;$('#xff').innerHTML='<option value="">no filter</option>'+s.dims.map(d=>`<option>${esc(d)}</option>`).join('');
+  $('#xd1').value=s.dims.includes('month')?'month':s.dims[1]||s.dims[0];
+  $('#xmeas').innerHTML=Object.keys(s.measures).map((m,i)=>`<label><input type="checkbox" value="${esc(m)}" ${i===0?'checked':''}>${esc(m)}</label>`).join('');
+  $('#xchart').value=$('#xd1').value==='month'||$('#xd1').value==='date'?'line':'bar';xRun()}
+function xSpec(){const dims=[$('#xd1').value,$('#xd2').value].filter(Boolean),measures=[...document.querySelectorAll('#xmeas input:checked')].map(i=>i.value);
+  const sp={source:$('#xsrc').value,measures,dims,limit:parseInt($('#xlimit').value)||50};if($('#xdays').value)sp.days=parseInt($('#xdays').value);
+  if($('#xff').value&&$('#xfv').value)sp.filters=[{field:$('#xff').value,op:$('#xfo').value,value:$('#xfv').value}];return sp}
+async function xRun(){
+  try{const r=await api('/api/bi/explore',{method:'POST',body:JSON.stringify(xSpec())});const m=r.measures[0],u=r.units[m],d0=r.dims[0],ch=$('#xchart').value;
+    $('#xnote').textContent=`${r.rows.length} rows · warehouse as of ${r.as_of}`;
+    let body='';if(ch==='line'&&d0)body=lineSvg(r.rows.map(x=>({x:x[d0],y:x[m]})),u);
+    else if(ch==='bar')body=barHtml(r.rows.map(x=>({[d0||'total']:r.dims.map(d=>x[d]).join(' · ')||'total',[m]:x[m]})),u);
+    $('#xchartout').style.display=body?'block':'none';$('#xchartout').innerHTML=`<div class="t">${esc(m)}${d0?' by '+esc(r.dims.join(', ')):''}</div>`+body;
+    $('#xres').innerHTML=r.rows.length?'<tr>'+Object.keys(r.rows[0]).map(k=>`<th>${esc(k)}</th>`).join('')+'</tr>'+r.rows.map(x=>'<tr>'+Object.entries(x).map(([k,v])=>`<td class="${typeof v==='number'?'n':''}">${typeof v==='number'?fmtv(v,r.units[k]||''):esc(v)}</td>`).join('')+'</tr>').join(''):'';
+    $('#xsql').textContent=r.sql}
+  catch(e){$('#xnote').textContent='Error: '+e.message}}
+['#xd1','#xd2','#xdays','#xchart'].forEach(s=>$(s).onchange=xRun);$('#xmeas').onchange=xRun;$('#xrun').onclick=xRun;
+$('#xpin').onclick=async()=>{try{const r=await api('/api/bi/explore/pin',{method:'POST',body:JSON.stringify({spec:xSpec(),title:$('#xtitle').value||'Exploration',chart:$('#xchart').value})});toast(`Pinned to "Saved explorations" (${r.tiles} tiles). Open it in Insights.`)}catch(e){toast(e.message)}};
+
+// ---------------- Ask vix
+const askHist=[];
+$('#askbtn').onclick=async()=>{$('#ask').classList.toggle('on');if($('#ask').classList.contains('on')){$('#askin').focus();if(!$('#askeng').textContent){const e=await api('/api/chat/engine').catch(()=>({engine:''}));$('#askeng').textContent=e.engine}}};
+$('#askx').onclick=()=>$('#ask').classList.remove('on');
+document.querySelectorAll('#ask .sugg a').forEach(a=>a.onclick=e=>{e.preventDefault();$('#askin').value=a.textContent;askSend()});
+$('#askf').onsubmit=e=>{e.preventDefault();askSend()};
+async function askSend(){const q=$('#askin').value.trim();if(!q)return;$('#askin').value='';
+  const box=$('#askmsgs');box.insertAdjacentHTML('beforeend',`<div class="msg u">${esc(q)}</div><div class="msg a" id="askwait">…</div>`);box.scrollTop=box.scrollHeight;
+  try{const r=await api('/api/chat',{method:'POST',body:JSON.stringify({message:q,history:askHist.slice(-6)})});
+    askHist.push({role:'user',content:q},{role:'assistant',content:r.answer});
+    $('#askwait').outerHTML=`<div class="msg a">${inl(r.answer)}<div class="tl">${esc(r.engine||'')}${r.tools&&r.tools.length?' · used '+r.tools.map(t=>t.tool).join(', '):''}${r.note?' · '+esc(r.note):''}</div></div>`}
+  catch(e){$('#askwait').outerHTML=`<div class="msg a">Error: ${esc(e.message)}</div>`}
+  box.scrollTop=box.scrollHeight}
+function load(t){({overview,world:worldTab,business:businessTab,insights:insightsTab,crm:crmTab,network:networkTab,roles:rolesTab,graph:graphTab,explore:exploreTab,decisions:decisionsTab,reports,schedules:schedTab})[t]().catch(e=>toast(e.message))}
 overview().catch(e=>toast(e.message));setInterval(()=>{if($('#overview').classList.contains('on'))overview().catch(()=>{})},20000);
 </script>
 </body>

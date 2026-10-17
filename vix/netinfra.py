@@ -220,7 +220,7 @@ def assign_ports() -> dict:
         for (dev, n) in c.execute("select leaf, count(*) from ports where leaf is not null group by leaf"):
             used[dev] = n
         leaves = {}
-        for (h, site) in c.execute("select hostname, site from net_device where role='leaf' and mode='sim'"):
+        for (h, site) in c.execute("select hostname, site from net_device where role='leaf' and mode='sim' and status!='staged'"):
             leaves.setdefault(site, []).append(h)
         for pid, site, tid in c.execute("select id, site, tenant from ports where leaf is null").fetchall():
             # keep a tenant's second port on the other leaf of the pair when possible (redundancy)
@@ -241,7 +241,8 @@ def assign_ports() -> dict:
         for (dev, n) in c.execute("select ix_switch, count(*) from ix_ports where ix_switch is not null group by ix_switch"):
             ix_used[dev] = n
         for xid, metro, tid in c.execute("select id, metro, tenant from ix_ports where ix_switch is null").fetchall():
-            sw = [r[0] for r in c.execute("select hostname from net_device where metro=? and role='ix' and mode='sim' order by hostname", (metro,))]
+            sw = [r[0] for r in c.execute("select hostname from net_device where metro=? and role='ix' and mode='sim'"
+                                          " and status!='staged' order by hostname", (metro,))]
             mine = {r[0] for r in c.execute("select ix_switch from ix_ports where tenant=? and metro=? and ix_switch is not null", (tid, metro))}
             cands = [s for s in sw if ix_used.get(s, 0) < IX_PORTS]
             if not cands:
@@ -367,6 +368,15 @@ def services_affected(down: set, down_links: set) -> list[dict]:
         if x["ix_switch"] in down and not ix_alive.get((x["tenant"], x["metro"])):
             out.append({"tenant": x["tenant"], "kind": "ix_port", "id": x["id"],
                         "mrr": products.PRICES["ix_port"].get(x["speed_g"], 1200)})
+    try:
+        ia = db.rows("select * from internet_access")
+    except Exception:  # noqa: BLE001
+        ia = []
+    for x in ia:
+        has_ports = (x["tenant"], x["metro"]) in metro_ok
+        if not core_ok.get(x["metro"], True) or (has_ports and not metro_ok[(x["tenant"], x["metro"])]):
+            out.append({"tenant": x["tenant"], "kind": "internet_access", "id": x["id"],
+                        "mrr": x["commit_mbps"] * products.PRICES["internet_per_mbps"] + products.PRICES["internet_port_fee"]})
     for e in db.rows("select * from edge_devices"):
         if not core_ok.get(e["metro"], True):
             out.append({"tenant": e["tenant"], "kind": "edge_device", "id": e["id"], "mrr": e["vcpu"] * products.PRICES["edge_per_vcpu"]})
@@ -426,6 +436,16 @@ def simulate_day(rnd: random.Random) -> dict:
                 if new < -14:
                     c.execute("update net_interface set oper_up=0 where device=? and name=?", (dev, name))
                     events.append(("interface", f"{dev}:{name}", "optic", rnd.uniform(0, 1380)))
+    # configuration drift: someone changed a box by hand
+    for d in db.rows("select hostname, config from net_device where mode='sim' and status='up'"):
+        if rnd.random() < 0.004:
+            lines = (d["config"] or "").splitlines()
+            golden = [l for l in lines if l.startswith(("ntp server", "logging host", "aaa authentication", "banner"))]
+            if golden:
+                lines.remove(rnd.choice(golden))
+            else:
+                lines.append("snmp-server community public ro")
+            db.execute("update net_device set config=? where hostname=?", ("\n".join(lines) + "\n", d["hostname"]))
     for kind, target, cause, start in events:
         db.execute("insert into net_event(sim_date,start_min,target_kind,target,cause,status) values(?,?,?,?,?,'open')",
                    (day, round(start, 1), kind, target, cause))
@@ -539,14 +559,13 @@ def add_leaf_pair(site: str) -> dict:
         h = f"{p}-leaf{s}"
         db.execute("insert into net_device values(" + ",".join("?" * 20) + ")",
                    (h, site, metro, "leaf", "tessell", "TX-1048", "sim-tessell", "sim", f"198.19.{random.randint(0, 250)}.{random.randint(1, 250)}",
-                    None, ver, f"TE{random.randint(10**8, 10**9 - 1)}", "up", None, None, today(),
+                    None, ver, f"TE{random.randint(10**8, 10**9 - 1)}", "staged", None, None, today(),
                     f"{p}-leaf{'b' if s == 'a' else 'a'}", 56, _config(h, "leaf", ver), db.now()))
         with db.conn() as c:
             c.executemany("insert into net_interface values(?,?,?,?,?,?,?,?,?,?)",
                           [(h, f"Ethernet{i}", "customer" if i <= 48 else "uplink", 100 if i <= 48 else 400, 1, 1, -2.5, 0, "", None)
                            for i in range(1, 57)])
-    placed = assign_ports()
-    return {"added": [f"{p}-leafa", f"{p}-leafb"], "ports_placed": placed["placed"]}
+    return {"added": [f"{p}-leafa", f"{p}-leafb"], "status": "staged: Pathfinder acceptance-tests before customers land"}
 
 
 def add_ix_switch(metro: str) -> dict:
@@ -558,7 +577,7 @@ def add_ix_switch(metro: str) -> dict:
                     (today(),))
     db.execute("insert into net_device values(" + ",".join("?" * 20) + ")",
                (h, site, metro, "ix", "tessell", "TX-6400", "sim-tessell", "sim", f"198.19.{random.randint(0, 250)}.{random.randint(1, 250)}",
-                None, ver, f"TE{random.randint(10**8, 10**9 - 1)}", "up", None, None, today(), f"{metro.lower()}-ix{n - 1}",
+                None, ver, f"TE{random.randint(10**8, 10**9 - 1)}", "staged", None, None, today(), f"{metro.lower()}-ix{n - 1}",
                 64, _config(h, "ix", ver), db.now()))
     with db.conn() as c:
         c.executemany("insert into net_interface values(?,?,?,?,?,?,?,?,?,?)",

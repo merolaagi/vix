@@ -37,6 +37,36 @@ DEPARTMENTS = [
     {"id": "capacity", "name": "Network Capacity", "agent": "Gauge", "tier": "department", "reports_to": "cno",
      "mission": "Forecast port and backbone exhaustion and file capex decisions before customers wait.",
      "kpis": ["hot spots"]},
+    {"id": "cto", "name": "Office of the CTO", "agent": "Lattice", "tier": "super", "reports_to": "ceo",
+     "mission": "Own the software that runs the company: platform APIs, workflows, security, product software, ITSM and the "
+                "AI assistant. Report engineering health to the CEO.", "kpis": ["test pass rate", "security findings"]},
+    {"id": "platform", "name": "Platform Engineering", "agent": "Anvil", "tier": "department", "reports_to": "cto",
+     "mission": "Backend APIs and data stores, durable workflows, end-to-end tests, DevSecOps.", "kpis": ["API p95", "e2e pass"]},
+    {"id": "productsw", "name": "Product Software", "agent": "Keel", "tier": "department", "reports_to": "cto",
+     "mission": "Product backends including Internet Access; regression tests and delivery quality.", "kpis": ["regression pass"]},
+    {"id": "aieng", "name": "AI Engineering", "agent": "Echo", "tier": "department", "reports_to": "cto",
+     "mission": "The Ask vix assistant and MCP tools grounded in telemetry, inventory, topology and finance; evaluation.",
+     "kpis": ["eval score"]},
+    {"id": "itsm", "name": "IT Service Management", "agent": "Tally", "tier": "department", "reports_to": "cto",
+     "mission": "ServiceNow-shaped incidents, change requests, problems and CMDB.", "kpis": ["problems open"]},
+    {"id": "datacloud", "name": "Data Cloud & Marketing Technology", "agent": "Signal", "tier": "department", "reports_to": "cdo",
+     "mission": "Unified customer profiles, consent, segments and next-best-action opportunities.", "kpis": ["actions", "consent"]},
+    {"id": "graph", "name": "Knowledge Graph", "agent": "Loom", "tier": "department", "reports_to": "cdo",
+     "mission": "Keep the company graph (people, work, customers, money, gear) current in Neo4j and the embedded store.",
+     "kpis": ["nodes", "edges"]},
+    {"id": "netauto", "name": "Network Automation", "agent": "Cadence", "tier": "department", "reports_to": "cno",
+     "mission": "Golden configs, compliance checks and automated remediation through change management.",
+     "kpis": ["config compliance"]},
+    {"id": "certlab", "name": "Network Certification Lab", "agent": "Proof", "tier": "department", "reports_to": "cno",
+     "mission": "Certify every network OS release before rollout: regression, interop, scale, rollback.", "kpis": ["releases certified"]},
+    {"id": "sre", "name": "Site Reliability Engineering", "agent": "Beacon", "tier": "department", "reports_to": "cno",
+     "mission": "SLOs, error budgets, change freezes and postmortems.", "kpis": ["budget burn", "SLOs met"]},
+    {"id": "arch", "name": "Network Architecture", "agent": "Vantage", "tier": "department", "reports_to": "cno",
+     "mission": "Measure vendor families, write architecture decision records, request proofs of concept.", "kpis": ["ADRs"]},
+    {"id": "sdn", "name": "SDN & AI Networking", "agent": "Mesh", "tier": "department", "reports_to": "rnd",
+     "mission": "Inference-traffic routing, L4/L7 proxying and mTLS for AI halls.", "kpis": ["p95 latency"]},
+    {"id": "ps", "name": "Professional Services", "agent": "Bridge", "tier": "department", "reports_to": "exec",
+     "mission": "Implementation projects for large wins: milestones, delays, CSAT.", "kpis": ["projects", "CSAT"]},
     {"id": "exec", "name": "Office of the Chief Operator", "agent": "Atlas", "tier": "super", "reports_to": "ceo",
      "mission": "Run the business: drive the operating cycle across the departments on the simulated "
                 "calendar, review KPIs weekly and file decisions (new air or AI halls, cooling, staffing) for the founder.",
@@ -361,6 +391,20 @@ def seed_schedules():
         schedule_add(name, every)
 
 
+def seed_v5_schedules():
+    from .. import graph
+    from . import eng_playbooks
+    eng_playbooks.init()
+    graph.init()
+    have = {s["playbook"] for s in db.rows("select playbook from schedules")}
+    for name, every in (("cto_engineering_review", "weekly sun 05:20"), ("sre_slo_review", "weekly sun 05:35"),
+                        ("aiops_predict", "daily 03:40"), ("crm_data_cloud", "weekly wed 04:10"),
+                        ("net_inventory_audit", "weekly fri 04:25"), ("arch_review", "weekly sat 04:55"),
+                        ("graph_sync", "daily 04:50")):
+        if name not in have:
+            schedule_add(name, every)
+
+
 def seed_v4_schedules():
     have = {s["playbook"] for s in db.rows("select playbook from schedules")}
     if "cno_network_review" not in have:
@@ -465,3 +509,5 @@ def overview():
 
 from . import playbooks  # noqa: E402,F401  (registers every playbook)
 from . import net_playbooks  # noqa: E402,F401
+from . import eng_playbooks  # noqa: E402,F401
+from . import graph_playbooks  # noqa: E402,F401

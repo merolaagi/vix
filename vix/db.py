@@ -90,6 +90,10 @@ create table if not exists tickets (
   id integer primary key, tenant integer, site text, kind text, priority text, sim_date text,
   opened_min real, sla_min real, work_min real, done_min real, met integer, billed_usd real
 );
+create table if not exists internet_access (
+  id integer primary key, tenant integer, metro text, commit_mbps integer, burst_mbps integer, ipv4_block text,
+  bgp integer, ts real
+);
 create table if not exists contracts (
   tenant integer primary key, start_date text, end_date text, term_months integer,
   escalator_pct real, status text

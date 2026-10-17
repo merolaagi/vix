@@ -132,14 +132,25 @@ class SimDriver:
 
     # config lifecycle (NAPALM semantics)
     def load_merge_candidate(self, config: str):
-        self._candidates[self.d["hostname"]] = (self.d["config"] or "") + config.rstrip() + "\n"
+        """Merge like a CLI: 'no <line>' removes matching lines, other lines are added if absent."""
+        lines = (self.d["config"] or "").splitlines()
+        for raw in config.splitlines():
+            line = raw.rstrip()
+            if not line.strip():
+                continue
+            if line.startswith("no "):
+                target = line[3:].strip()
+                lines = [x for x in lines if not x.strip().startswith(target)]
+            elif line not in lines:
+                lines.append(line)
+        self._candidates[self.d["hostname"]] = "\n".join(lines) + "\n"
 
     def compare_config(self):
         cand = self._candidates.get(self.d["hostname"])
         if cand is None:
             return ""
         old, new = (self.d["config"] or "").splitlines(), cand.splitlines()
-        return "\n".join("+" + line for line in new if line not in old)
+        return "\n".join(["+" + line for line in new if line not in old] + ["-" + line for line in old if line not in new])
 
     def commit_config(self, revert_in: int | None = None):
         cand = self._candidates.pop(self.d["hostname"], None)

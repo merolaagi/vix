@@ -60,6 +60,8 @@ PRICES = {
     "edge_licence": {"router": 250.0, "firewall": 600.0, "sdwan": 450.0},
     "ix_port": {1: 500.0, 10: 1200.0, 100: 3500.0, 400: 9000.0},
     "ai_kw_month": 190.0,
+    "internet_per_mbps": 0.55,
+    "internet_port_fee": 300.0,
     "remote_hands_30min": 120.0,
     "install_flat": 400.0,
 }
@@ -244,6 +246,19 @@ def fulfill_edge(tid, p):
     return "done", f"{size} virtual {role}{' (HA pair)' if ha else ''} #{did} in {m}"
 
 
+def fulfill_internet(tid, p):
+    """Equinix-style Internet Access: committed bandwidth with burst, over the tenant's port, optional BGP."""
+    m, commit = p.get("metro"), int(p.get("commit_mbps", 1000))
+    if commit < 50:
+        return "rejected", "commit at least 50 Mbps"
+    if _port_in_metro(tid, m) is None:
+        return "rejected", f"no site in {m}"
+    n = (db.scalar("select count(*) from internet_access") or 0) + 1
+    db.execute("insert into internet_access(tenant,metro,commit_mbps,burst_mbps,ipv4_block,bgp,ts) values(?,?,?,?,?,?,?)",
+               (tid, m, commit, commit * 2, f"203.0.113.{(n * 8) % 256}/29", int(bool(p.get("bgp", commit >= 1000))), db.now()))
+    return "done", f"{commit} Mbps Internet Access in {m} (burst {commit * 2}){' with BGP' if commit >= 1000 else ''}"
+
+
 def fulfill_ix(tid, p):
     m, sp = p.get("metro"), int(p.get("speed_g", 10))
     if sp not in PRICES["ix_port"]:
@@ -255,7 +270,7 @@ def fulfill_ix(tid, p):
 
 
 HANDLERS = {"ai_cabinets": fulfill_ai, "cloud_connection": fulfill_cloud, "cloud_router": fulfill_router,
-            "edge_device": fulfill_edge, "ix_port": fulfill_ix}
+            "edge_device": fulfill_edge, "ix_port": fulfill_ix, "internet_access": fulfill_internet}
 
 ORDER_KINDS = {
     "ai_cabinets": "AI colocation in a liquid-cooled hall: {metro, cabinets, kw_per_cabinet}",
@@ -263,6 +278,7 @@ ORDER_KINDS = {
     "cloud_router": "Cloud router: {metro, package: lab|standard|advanced|premium}",
     "edge_device": "Network Edge virtual device: {metro, role: router|firewall|sdwan, size, ha}",
     "ix_port": "Internet exchange port: {metro, speed_g}",
+    "internet_access": "Internet Access: {metro, commit_mbps, bgp}",
 }
 
 
@@ -304,6 +320,11 @@ def lines_by_tenant() -> dict:
         add(r["tenant"], "network_edge", mult * (r["vcpu"] * PRICES["edge_per_vcpu"] + PRICES["edge_licence"][r["role"]]))
     for r in db.rows("select tenant, speed_g, count(*) n from ix_ports group by tenant, speed_g"):
         add(r["tenant"], "internet_exchange", PRICES["ix_port"].get(r["speed_g"], 1200) * r["n"])
+    try:
+        for r in db.rows("select tenant, sum(commit_mbps) mb, count(*) n from internet_access group by tenant"):
+            add(r["tenant"], "internet_access", r["mb"] * PRICES["internet_per_mbps"] + r["n"] * PRICES["internet_port_fee"])
+    except Exception:  # noqa: BLE001  (pre-v0.5 databases)
+        pass
     idx = {r["id"]: r["price_index"] or 1.0 for r in db.rows("select id, price_index from tenants")}
     for tid, d in out.items():
         for k in d:
@@ -326,7 +347,7 @@ def revenue_breakdown() -> dict:
         if r["n"] > owned:
             lines["metal"] = lines.get("metal", 0.0) + (r["n"] - owned) * world.PRICES["metal_month"][r["plan"]]
     order = ["colocation_space", "colocation_power", "ai_colocation_power", "ports", "cross_connects",
-             "fabric_virtual_circuits", "cloud_connections", "cloud_routers", "network_edge", "internet_exchange",
+             "fabric_virtual_circuits", "cloud_connections", "cloud_routers", "network_edge", "internet_exchange", "internet_access",
              "metal", "remote_hands"]
     out = {k: round(lines.get(k, 0.0), 2) for k in order}
     out["total"] = round(sum(out.values()), 2)
@@ -472,7 +493,7 @@ def release_tenant(tid, fraction: float) -> dict:
                        (m["n"], m["metro"], m["plan"]))
         db.execute("delete from virtual_circuits where a_port in (select id from ports where tenant=?)"
                    " or z_port in (select id from ports where tenant=?)", (tid, tid))
-        for t in ("cloud_connections", "cloud_routers", "edge_devices", "metal_servers", "ix_ports", "ports"):
+        for t in ("cloud_connections", "cloud_routers", "edge_devices", "metal_servers", "ix_ports", "internet_access", "ports"):
             db.execute(f"delete from {t} where tenant=?", (tid,))
     return freed
 

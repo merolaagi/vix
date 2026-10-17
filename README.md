@@ -17,15 +17,28 @@ Every site, tenant and number is simulated and seeded. No real company is modele
 Founder (you)
 └── Helm, CEO: ceo_board_pack (weekly board pack with a recommendation on every decision)
     ├── Atlas, Chief Operator: operations departments
+    │   └── Bridge, Professional Services: ps_projects
     ├── Euler, Chief Scientist: R&D
+    │   └── Mesh, SDN & AI Networking: sdn_inference_study
     ├── Meridian, Chief Network Officer: network health, live readiness
-    │   ├── Sentinel, NOC: noc_watch (poll, diagnose, remediate, SLA credits)
+    │   ├── Sentinel, NOC: noc_watch, aiops_predict (prediction, anomalies, resilience tests)
     │   ├── Tempo, Change Management: change_manage (firmware, CVEs, windows, rollback)
     │   ├── Gauge, Network Capacity: capacity_plan (ports, backbone, capex decisions)
-    │   └── Pathfinder, Network Engineering: net_bgp_study, net_latency_map
+    │   ├── Pathfinder, Network Engineering: net_deploy_migrate, net_inventory_audit, net_bgp_study
+    │   ├── Cadence, Network Automation: netauto_compliance (golden config, drift, safe changes)
+    │   ├── Proof, Certification Lab: nos_certify (regression, interop, scale before rollout)
+    │   ├── Beacon, SRE: sre_slo_review (SLOs, error budgets, change freeze, postmortems)
+    │   └── Vantage, Network Architecture: arch_review (architecture decision records)
+    ├── Lattice, Chief Technology Officer: cto_engineering_review
+    │   ├── Anvil, Platform Engineering: platform_api_review, platform_reliability, platform_e2e_tests, platform_devsecops
+    │   ├── Keel, Product Software: product_regression (Internet Access and every product)
+    │   ├── Echo, AI Engineering: ai_assistant_eval (tests Ask vix)
+    │   └── Tally, IT Service Management: itsm_sync (ServiceNow-shaped incidents, changes, problems, CMDB)
     └── Vega, Chief Data Officer: cdo_data_audit (reconciliation + REA evidence)
         ├── Scribe, CRM Operations: crm_sync
-        └── Prism, Business Intelligence: bi_nightly_load, bi_export
+        ├── Prism, Business Intelligence: bi_nightly_load, bi_export
+        ├── Signal, Data Cloud: crm_data_cloud (consent, duplicates, segments, next best actions)
+        └── Loom, Knowledge Graph: graph_sync (company graph, Neo4j sync)
 ```
 
 ## Org chart
@@ -48,10 +61,77 @@ Founder (you)
 | Dept | Network Engineering | Pathfinder | `net_bgp_study`, `net_latency_map` |
 | Dept | Energy & Sustainability | Steward | `energy_report` |
 | Dept | Finance | Ledger | `fin_monthly_close` |
+| Super | Office of the CTO | **Lattice** | `cto_engineering_review` |
+| Dept | Platform Engineering | Anvil | `platform_api_review`, `platform_reliability`, `platform_e2e_tests`, `platform_devsecops` |
+| Dept | Product Software | Keel | `product_regression` |
+| Dept | AI Engineering | Echo | `ai_assistant_eval` |
+| Dept | IT Service Management | Tally | `itsm_sync` |
+| Dept | Data Cloud & Marketing Technology | Signal | `crm_data_cloud` |
+| Dept | Knowledge Graph | Loom | `graph_sync` |
+| Dept | Network Automation | Cadence | `netauto_compliance` |
+| Dept | Network Certification Lab | Proof | `nos_certify` |
+| Dept | Site Reliability Engineering | Beacon | `sre_slo_review` |
+| Dept | Network Architecture | Vantage | `arch_review` |
+| Dept | SDN & AI Networking | Mesh | `sdn_inference_study` |
+| Dept | Professional Services | Bridge | `ps_projects` |
 
 Super agents delegate: their runs start child runs in the departments and write a
 summary that links each child report. Irreversible changes (a new hall, a network
 standard, extra cooling) become **decisions** the founder approves in HQ or from chat.
+
+## Engineering roles (v0.5)
+
+The 20 software and network engineering roles from the founder's research file are each
+mapped to the department and agent that does the work and the playbooks that do it
+(`vix/roles.py`, HQ **Roles** tab, MCP `roles_catalog`). Every role is covered and each
+playbook shows its last run. Examples: Java backend becomes Anvil's API review (latency
+budgets, index fixes from query plans, contract checks); network automation becomes
+Cadence's golden-config compliance; network OS certification becomes Proof's lab; the
+SRE role becomes Beacon's SLOs and error budgets; the ServiceNow role becomes Tally's
+ITSM tables (`GET /api/now/table/{incident|change_request|problem|cmdb_ci}` with
+`sysparm_query`); the observability and AI role becomes Echo's tests of Ask vix.
+
+## Knowledge graph and Neo4j
+
+Loom rebuilds a company graph every day: founder, departments, agents, roles, playbooks,
+products, P&L lines (revenue, costs, EBITDA), metros, sites, halls, vendors, devices,
+backbone links, customers, incidents, decisions and opportunities, joined by
+relationships such as REPORTS_TO, OPERATES, EARNS, ADDS_TO, ACCOUNTABLE_FOR,
+SUBTRACTS_FROM, BUYS, CONNECTED_VIA, IMPACTED and HANDLED_BY. HQ's **Graph** tab
+draws neighbourhoods, finds paths ("how is Sentinel connected to EBITDA?") and shows
+the money map (revenue each department operates, costs it owns).
+
+The graph works without Neo4j. When Neo4j is running (default `bolt://localhost:7687`;
+set `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` in `.env`), Loom
+syncs to it. Every vix node carries the label `VixNode` plus `Vix<Label>` and
+`vix=true`, and only those are ever deleted or rewritten, so it can share a database
+with another graph (such as PrimeKG). The HQ Cypher console and `graph_cypher` are
+read-only. Try:
+
+```
+MATCH p=(:VixIncident)-[:IMPACTED]->(:VixCustomer)-[:BUYS]->(:VixProduct)-[:EARNS]->(:VixPnLLine) RETURN p LIMIT 25
+```
+
+Set `VIX_NEO4J=off` to skip the sync.
+
+## Explore (self-service BI)
+
+HQ's **Explore** tab is a small Tableau-style query builder over the warehouse: pick a
+source (revenue, operations, tickets, pipeline, bookings, contracts, energy, network),
+measures, up to two dimensions, a filter and a chart, then pin it to a dashboard in
+Insights. Only fields from the semantic model are accepted, so the SQL it shows is
+always safe. Same thing over MCP: `bi_explore_model`, `bi_explore`, `bi_pin_explore`.
+
+## Ask vix (chatbot)
+
+The **Ask vix** button in HQ (and MCP `ask_vix`) answers questions about the company
+from the systems of record: P&L, revenue by product or segment, customers, renewals at
+risk, network incidents, open decisions, who does a job, and how two things connect.
+It uses a local model through Ollama when one is running (`VIX_OLLAMA_URL`, default
+`http://localhost:11434`; `VIX_CHAT_MODEL` to pick one) with tool calling, so numbers
+come from tools rather than memory, and falls back to a built-in router otherwise. No
+paid API is used. Every answer lists the tools it called. Set `VIX_CHAT_ENGINE=router`
+to force the router.
 
 ## Network infrastructure (simulated now, real-gear ready)
 
@@ -138,6 +218,12 @@ remote-hands SLAs and retention all run on this calendar.
 - **Latency**: great-circle distance x 1.45 route factor at 200 km/ms.
 
 ## Upgrading
+
+Run the new `install.sh` over the old install. v0.4 to v0.5 adds the CTO organisation
+and the new network departments with their schedules, the ServiceNow-shaped tables,
+consent fields on CRM contacts, the Internet Access product, the knowledge graph and the
+`neo4j` driver. The first compliance sweep queues a config change for every device that
+drifts from the golden config; Tempo works through them in maintenance windows.
 
 Run the new `install.sh` over the old install. v0.2 to v0.3 creates the CRM from your
 current world (accounts, contacts, contracts, assets, cases), loads the warehouse, and

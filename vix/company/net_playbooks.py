@@ -224,7 +224,12 @@ def _target_version(dev):
     cur = netinfra.firmware(dev["vendor"], dev["os_version"])
     today = products.today_d()
     best = None
+    certs = {(r["vendor"], r["version"]): r["status"] for r in db.rows("select * from net_cert")} if db.one(
+        "select name from sqlite_master where name='net_cert'") else {}
+    gated = any(v == dev["vendor"] for v, _ in certs)
     for f in netinfra.released_firmware(dev["vendor"]):
+        if gated and certs.get((f["vendor"], f["version"])) != "certified":
+            continue
         age = (today - dt.date.fromisoformat(f["released"])).days
         crit_fix = cur and any(c["severity"] in ("critical", "high") for c in cur["cves"])
         soak = 7 if crit_fix else 30
@@ -261,6 +266,8 @@ def change_manage(ctx):
             continue
         cur = netinfra.firmware(d["vendor"], d["os_version"]) or {"cves": []}
         prio = 0 if any(c["severity"] == "critical" for c in cur["cves"]) else 1 if cur["cves"] else 2
+        if db.setting("change_freeze", False) and prio > 1:
+            continue
         cands.append((prio, d, tgt, reason))
     cands.sort(key=lambda x: (x[0], x[1]["hostname"]))
     windows_used = {}
@@ -299,6 +306,15 @@ def change_manage(ctx):
             new_w = _next_window(today + dt.timedelta(days=1)).isoformat()
             db.execute("update net_change set window_date=? where id=?", (new_w, ch["id"]))
             done.append({"change": ch["id"], "device": ch["device"], "result": f"precheck failed (device or HA peer not healthy); moved to {new_w}"})
+            continue
+        if ch["kind"] == "config":
+            try:
+                r = ctl.apply_config(ch["device"], ch["notes"] or "", ch["id"])
+                db.execute("update net_change set status=?, result=? where id=?",
+                           ("done" if r["ok"] else "rolled_back", "config applied" if r["ok"] else r.get("note"), ch["id"]))
+                done.append({"change": ch["id"], "device": ch["device"], "result": "done (golden config applied, hitless)"})
+            except netdrivers.NotAllowed as e:
+                done.append({"change": ch["id"], "device": ch["device"], "result": f"blocked by guardrail: {e}"})
             continue
         try:
             r = ctl.upgrade_firmware(ch["device"], ch["to_ver"], ch["id"], rnd)
@@ -411,6 +427,9 @@ def network_kpis(days: int = 30) -> dict:
           "repair times, SLA credits, change success, CVE exposure and live readiness to the CEO.")
 def cno_network_review(ctx):
     cap = ctx.child("capacity_plan")
+    sre = ctx.child("sre_slo_review")
+    ai = ctx.child("aiops_predict")
+    arch = ctx.child("arch_review")
     k7, k30 = network_kpis(7), network_kpis(30)
     worst = db.rows("select sim_date, target, cause, action, customers, round(restored_min-start_min) minutes, credits_usd"
                     " from net_incident where sim_date>? order by credits_usd desc, customers desc limit 8",
@@ -423,6 +442,11 @@ def cno_network_review(ctx):
         escalate.append(f"{k30['devices_critical_cve']} devices still run firmware with critical/high CVEs")
     if k30["changes_waiting"]:
         escalate.append(f"{k30['changes_waiting']} changes waiting (some need founder approval)")
+    ss = sre["summary"] or {}
+    if ss.get("freeze"):
+        escalate.append(f"error budget exhausted ({ss.get('budget_burn_pct')}%): change freeze on")
+    if (ss.get("slos_missed") or 0) > 0:
+        escalate.append(f"{ss['slos_missed']} SLO(s) missed")
     db.set_setting("net_kpis", {**k30, "as_of": products.today()})
     ctx.log(f"availability 30d {k30['availability_pct']}%, {k30['incidents']} incidents")
     md = (f"Network health on **{products.today()}** (simulated).\n\n## KPIs\n\n" +
@@ -433,7 +457,11 @@ def cno_network_review(ctx):
           f"\nIncidents by cause (30 days): {k30['by_cause'] or 'none'}.\n\n## Costliest incidents (30 days)\n\n" +
           table(worst, ["sim_date", "target", "cause", "action", "customers", "minutes", "credits_usd"]) +
           f"\n## Capacity\n\nGauge: {(cap['summary'] or {}).get('hot', 0)} hot spots, {(cap['summary'] or {}).get('filed', 0)} "
-          f"decisions filed. Report: {cap['report']}\n\n## Live readiness\n\n"
+          f"decisions filed. Report: {cap['report']}\n\n## Team reports\n\n"
+          f"- Beacon (SRE): budget burn {(sre['summary'] or {}).get('budget_burn_pct')}%, SLOs missed {(sre['summary'] or {}).get('slos_missed')}. {sre['report']}\n"
+          f"- Sentinel (AIOps): {(ai['summary'] or {}).get('prevented')} failures prevented, {(ai['summary'] or {}).get('spof_devices')} single points of failure. {ai['report']}\n"
+          f"- Vantage (architecture): {(arch['summary'] or {}).get('adrs')} ADRs. {arch['report']}\n"
+          f"\n## Live readiness\n\n"
           + (f"Level **{ready.get('level')}** as of {ready.get('date')}: {ready.get('summary')}" if ready else
              "Not assessed yet: run net_golive_readiness.") +
           "\n\n## Escalated to the CEO\n\n" + ("".join(f"- {e}\n" for e in escalate) or "- Nothing.\n"))

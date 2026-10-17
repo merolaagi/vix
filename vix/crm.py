@@ -96,6 +96,8 @@ ASSET_SOURCES = [
                      " 'EDGE-' || upper(role), metro, vcpu from edge_devices"),
     ("ix_ports", "select id, tenant, 'Exchange port ' || speed_g || 'G', 'IX-' || speed_g || 'G', metro, 1 from ix_ports"),
     ("metal_servers", "select id, tenant, 'Metal ' || plan, 'METAL-' || upper(plan), metro, 1 from metal_servers"),
+    ("internet_access", "select id, tenant, 'Internet Access ' || commit_mbps || ' Mbps', 'INTERNET', metro, commit_mbps"
+                        " from internet_access"),
 ]
 
 
@@ -125,7 +127,7 @@ def sync(rnd: random.Random | None = None) -> dict:
                 slug = re.sub(r"[^a-z]", "", t[1].lower())
                 for title in ("Head of Infrastructure", "Network Architect"):
                     n = c.execute("select count(*) from crm_contact").fetchone()[0] + 1
-                    c.execute("insert into crm_contact values(?,?,?,?,?,?,?)",
+                    c.execute("insert into crm_contact(Id,AccountId,FirstName,LastName,Title,Email,CreatedDate) values(?,?,?,?,?,?,?)",
                               (sfid("Contact", n), aid, first, last, title, f"{first.lower()}.{last.lower()}@{slug}.example", today))
                     out["contacts_new"] += 1
                     first, last = rnd.choice(["Lee", "Sam", "Noor", "Ira"]), rnd.choice(["Berg", "Rossi", "Adeyemi", "Chen"])
@@ -247,6 +249,8 @@ def _order_mrr(kind: str, p: dict) -> float:
         return mult * (EDGE_SIZES.get(p.get("size", "medium"), 4) * Q["edge_per_vcpu"] + Q["edge_licence"].get(p.get("role", "router"), 250))
     if kind == "ix_port":
         return Q["ix_port"].get(int(p.get("speed_g", 10)), 1200)
+    if kind == "internet_access":
+        return p.get("commit_mbps", 1000) * Q["internet_per_mbps"] + Q["internet_port_fee"]
     return 0.0
 
 

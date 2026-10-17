@@ -36,5 +36,5 @@ if ! git remote get-url origin > /dev/null 2>&1; then
   git remote add origin "https://github.com/$REPO.git"
 fi
 git add -A
-git commit -q -m "vix v$VERSION" || echo "No changes to commit."
+git commit -q -m "vix v$VERSION" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" -m "Claude-Session: https://claude.ai/code/session_01S3jC8duPDMyLPt6Kh4SEpv" || echo "No changes to commit."
 echo "Installed vix v$VERSION into $DEST"
