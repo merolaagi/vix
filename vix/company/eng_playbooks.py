@@ -57,7 +57,7 @@ def init():
 
 
 def _rnd(tag):
-    return random.Random(f"{tag}-{products.today()}-{time.time()}")
+    return products.rng(tag)
 
 
 # ================================================================ CTO: platform engineering

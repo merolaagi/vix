@@ -244,27 +244,25 @@ def run_tool(name, args):
 # ---------------------------------------------------------------- engines
 
 
-def _ollama_model():
-    want = os.environ.get("VIX_CHAT_MODEL")
-    try:
-        tags = httpx.get(f"{OLLAMA}/api/tags", timeout=2).json().get("models", [])
-    except Exception:  # noqa: BLE001
-        return None
-    names = [t["name"] for t in tags]
-    if want and want in names:
-        return want
-    for p in PREFERRED:
-        if p in names:
-            return p
-    chatty = [n for n in names if "embed" not in n]
-    return chatty[0] if chatty else None
+def _chat_model():
+    """The model the router would use for chat (Settings > roles > chat, then default, then a running local model)."""
+    from . import llm
+    want = os.environ.get("VIX_CHAT_MODEL", "").strip()
+    if want:
+        return want if want.split(":", 1)[0] in llm.PROVIDERS else f"ollama:{want}"
+    ms = llm.models_for("chat")
+    return ms[0] if ms else None
 
 
 def engine_name():
     if os.environ.get("VIX_CHAT_ENGINE", "auto") == "router":
         return "built-in router"
-    m = _ollama_model()
-    return f"Ollama {m}" if m else "built-in router"
+    m = _chat_model()
+    if not m:
+        return "built-in router"
+    pid, model = m.split(":", 1)
+    from . import llm
+    return f"{llm.PROVIDERS.get(pid, (pid,))[0].split(' (')[0]} {model}"
 
 
 SYSTEM = ("You are Ask vix, the assistant for vix, a simulated digital-infrastructure company run by AI agents. Answer only from "
@@ -272,23 +270,21 @@ SYSTEM = ("You are Ask vix, the assistant for vix, a simulated digital-infrastru
           "Use dollars with commas. If a tool fails, say so.")
 
 
-def _answer_ollama(model, message, history):
-    tools = [{"type": "function", "function": {"name": n, "description": d,
-                                               "parameters": {"type": "object", "properties": p, "required": list(p)}}}
+def _answer_llm(message, history):
+    from . import llm
+    tools = [{"name": n, "description": d, "parameters": {"type": "object", "properties": p, "required": list(p)}}
              for n, (_, d, p) in TOOLS.items()]
-    msgs = [{"role": "system", "content": SYSTEM}] + (history or [])[-6:] + [{"role": "user", "content": message}]
-    used = []
+    msgs = [{"role": h["role"], "content": h["content"]} for h in (history or [])[-6:] if h.get("role") in ("user", "assistant")]
+    msgs.append({"role": "user", "content": message})
+    used, eng = [], None
     for _ in range(5):
-        r = httpx.post(f"{OLLAMA}/api/chat", json={"model": model, "messages": msgs, "tools": tools, "stream": False,
-                                                   "options": {"temperature": 0.1}}, timeout=180).json()
-        m = r.get("message", {})
-        calls = m.get("tool_calls") or []
-        if not calls:
-            text = re.sub(r"<think>.*?</think>", "", m.get("content", ""), flags=re.S).strip()
-            return {"answer": text, "tools": used, "engine": f"Ollama {model}"}
-        msgs.append(m)
-        for c in calls:
-            name, args = c["function"]["name"], c["function"].get("arguments") or {}
+        r = llm.ask("chat", msgs, system=SYSTEM, tools=tools, temperature=0.1)
+        eng = f"{r['provider']} {r['model']}"
+        if not r["tool_calls"]:
+            return {"answer": r["text"], "tools": used, "engine": eng}
+        msgs.append({"role": "assistant", "content": r["text"], "tool_calls": r["tool_calls"]})
+        for c in r["tool_calls"]:
+            name, args = c["name"], c["arguments"] or {}
             if isinstance(args, str):
                 args = json.loads(args or "{}")
             try:
@@ -296,8 +292,8 @@ def _answer_ollama(model, message, history):
             except Exception as e:  # noqa: BLE001
                 res = {"error": str(e)}
             used.append({"tool": name, "args": args})
-            msgs.append({"role": "tool", "content": json.dumps(res, default=str)[:6000], "tool_name": name})
-    return {"answer": "I could not finish within five tool calls.", "tools": used, "engine": f"Ollama {model}"}
+            msgs.append({"role": "tool", "tool_call_id": c["id"], "name": name, "content": json.dumps(res, default=str)[:6000]})
+    return {"answer": "I could not finish within five tool calls.", "tools": used, "engine": eng}
 
 
 def _answer_router(message):
@@ -432,16 +428,14 @@ def _answer_router(message):
 
 def answer(message: str, history: list | None = None) -> dict:
     eng = os.environ.get("VIX_CHAT_ENGINE", "auto")
-    if eng != "router":
-        model = _ollama_model()
-        if model:
-            try:
-                return _answer_ollama(model, message, history)
-            except Exception as e:  # noqa: BLE001
-                r = _answer_router(message)
-                r["note"] = f"local model failed ({type(e).__name__}); answered with the built-in router"
-                r["engine"] = "built-in router"
-                return r
+    if eng != "router" and _chat_model():
+        try:
+            return _answer_llm(message, history)
+        except Exception as e:  # noqa: BLE001
+            r = _answer_router(message)
+            r["note"] = f"model unavailable ({type(e).__name__}: {str(e)[:120]}); answered with the built-in router"
+            r["engine"] = "built-in router"
+            return r
     r = _answer_router(message)
     r["engine"] = "built-in router"
     return r

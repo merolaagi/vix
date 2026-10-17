@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import Body, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
-from . import __version__, armory, bi, chat, crm, db, fin, graph, growth, market, netinfra, products, roles, trust, world
+from . import __version__, armory, bi, chat, council, crm, db, evolve, fin, graph, growth, harness, llm, market, netinfra, products, roles, trust, world
 from .company import charter as charter_mod
 from .company import engine
 from .config import STATIC_DIR
@@ -616,3 +616,122 @@ def papi_request(body: dict = Body(...), authorization: str | None = Header(None
         return market.request(tid, body.get("kind", ""), body.get("detail") or {}, channel="api")
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
+
+
+# ---------------------------------------------------------------- v0.10: models, council, self-improvement
+
+@app.get("/api/llm/settings")
+def llm_settings():
+    return llm.public_settings()
+
+
+@app.post("/api/llm/settings")
+def llm_settings_set(body: dict = Body(...)):
+    try:
+        return llm.update(body)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.post("/api/llm/test/{provider}")
+def llm_test(provider: str):
+    if provider not in llm.PROVIDERS:
+        raise HTTPException(404, "unknown provider")
+    return llm.test_provider(provider)
+
+
+@app.post("/api/llm/try")
+def llm_try(body: dict = Body(...)):
+    spec = body.get("model") or (llm.models_for("chat") or [None])[0]
+    if not spec:
+        raise HTTPException(400, "no model configured and Ollama is not running")
+    try:
+        r = llm.call(spec, [{"role": "user", "content": body.get("prompt") or "In one sentence, what does a data-center interconnection company sell?"}],
+                     role="test", max_tokens=200)
+        return {"model": spec, "text": r["text"], "latency_s": r["latency_s"]}
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"{type(e).__name__}: {str(e)[:300]}") from e
+
+
+@app.get("/api/llm/ollama")
+def llm_ollama():
+    return llm.ollama_status()
+
+
+@app.post("/api/llm/ollama/pull")
+def llm_ollama_pull(body: dict = Body(...)):
+    try:
+        return llm.ollama_pull(body.get("name", ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.post("/api/llm/ollama/delete")
+def llm_ollama_delete(body: dict = Body(...)):
+    try:
+        return llm.ollama_delete(body.get("name", ""))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, str(e)) from e
+
+
+@app.get("/api/llm/usage")
+def llm_usage():
+    llm.init()
+    return {"month": llm.usage_month(), "recent": db.rows("select * from llm_usage order by id desc limit 40")}
+
+
+@app.get("/api/council")
+def council_list():
+    council.init()
+    return {"settings": council.settings(), "members": council.members(), "sessions": council.sessions(), "record": council.record(),
+            "pending_for_claude": len(council.pending_for_claude())}
+
+
+@app.post("/api/council/convene/{decision}")
+def council_convene(decision: int):
+    from .company.playbooks import _recommend
+    d = next((x for x in engine.decisions() if x["id"] == decision), None)
+    if not d:
+        raise HTTPException(404, "no such decision")
+    v, why = _recommend(d)
+    return council.convene(d, v, why, force=True)
+
+
+@app.get("/api/harness")
+def harness_view():
+    return {"version": harness.version(), "components": harness.catalog(), "history": (db.setting("harness") or {}).get("history", [])[-10:]}
+
+
+@app.get("/api/evolve")
+def evolve_view():
+    return {"runs": evolve.runs(), "queue": __import__("json").loads(evolve.QUEUE.read_text()) if evolve.QUEUE.exists() else []}
+
+
+@app.get("/api/evolve/{run_id}")
+def evolve_run_view(run_id: str):
+    import re as _re
+    if not _re.fullmatch(r"[\w-]+", run_id) or not (evolve.ROOT / run_id / "state.json").exists():
+        raise HTTPException(404, "no such run")
+    st = evolve._load(run_id)
+    st.pop("frontier_rewards", None)
+    st.pop("baseline_rewards", None)
+    return {"state": st, "history": evolve.history(run_id)}
+
+
+@app.post("/api/evolve/run")
+def evolve_start(body: dict = Body(default={})):
+    return {"run_id": engine.start("evolve_run", {"rounds": int(body.get("rounds", 3)), "days": int(body.get("days", 45))}, "web")}
+
+
+@app.post("/api/evolve/propose")
+def evolve_propose(body: dict = Body(...)):
+    try:
+        return evolve.queue_proposal(body.get("component", ""), body.get("value"), body.get("hypothesis", ""), by="founder")
+    except (ValueError, TypeError) as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@app.post("/api/evolve/stop/{run_id}")
+def evolve_stop(run_id: str):
+    evolve.stop(run_id)
+    return {"stopping": run_id}

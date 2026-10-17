@@ -12,7 +12,7 @@ import time
 
 from mcp.server.mcpserver import MCPServer
 
-from . import __version__, armory, bi, chat, crm, db, fin, graph, growth, market, netdrivers, netinfra, netsim, products, roles, routerlab, thermal, trust, world
+from . import __version__, armory, bi, chat, council, crm, db, evolve, fin, graph, growth, harness, llm, market, netdrivers, netinfra, netsim, products, roles, routerlab, thermal, trust, world
 from .company import charter as charter_mod
 from .company import engine
 from .config import MCP_PORT
@@ -35,10 +35,46 @@ mcp = MCPServer(
         "then read company_report. Only call company_decide when the founder explicitly says to approve or "
         "reject. world_* tools read the simulated world; world_products summarises the product lines; "
         "accounts_at_risk lists renewals coming up. place_order adds demand. sim_bgp, sim_drill and sim_router "
-        "run the simulators directly. Every number is simulated; nothing is a real facility, provider or customer."
+        "run the simulators directly. You hold a seat on the council that deliberates on tough decisions: when the "
+        "founder asks you to review council dossiers, call council_pending, judge each on its merits (you may disagree "
+        "with Helm and the other models) and answer with council_vote. You can also improve the agents' own policies: "
+        "harness_view shows them, evolve_propose queues an edit with a hypothesis about the business, evolve_status "
+        "shows the self-improvement runs. Every number is simulated; nothing is a real facility, provider or customer."
     ),
 )
 
+_register_tool = mcp.tool
+
+
+def _tool(*a, **kw):
+    """Register a tool whose expected refusals (bad input, guard rails, unknown ids) reach Claude with their reason;
+    the mcp library otherwise hides the text of any exception that is not a ToolError."""
+    import functools
+    import inspect
+    from mcp.server.mcpserver.exceptions import ToolError
+    expected = (ValueError, KeyError, LookupError, PermissionError, FileNotFoundError, netdrivers.DriverError)
+
+    def deco(fn):
+        if inspect.iscoroutinefunction(fn):
+            @functools.wraps(fn)
+            async def w(*x, **y):
+                try:
+                    return await fn(*x, **y)
+                except expected as e:
+                    raise ToolError(str(e).strip("'\"") or type(e).__name__) from e
+        else:
+            @functools.wraps(fn)
+            def w(*x, **y):
+                try:
+                    return fn(*x, **y)
+                except expected as e:
+                    raise ToolError(str(e).strip("'\"") or type(e).__name__) from e
+        _register_tool(*a, **kw)(w)
+        return fn
+    return deco
+
+
+mcp.tool = _tool
 
 # ---------- company ----------
 
@@ -595,6 +631,83 @@ def governance_scorecards() -> dict:
     return {"as_of": latest, "scorecards": db.rows("select * from gov_scorecard where sim_date=?", (latest,)),
             "outcomes": db.rows("select * from gov_outcome order by approved_on desc limit 40"),
             "budgets": db.rows("select * from gov_budget where period=(select max(period) from gov_budget)")}
+
+
+
+# ---------- v0.10: council seat, self-improvement, models ----------
+
+@mcp.tool()
+def council_pending() -> list[dict]:
+    """Council dossiers waiting for YOUR vote (Claude's seat on the council). Each has the decision, Helm's rule-based
+    view, the company's numbers, how similar decisions turned out, and the other members' votes. Read it and judge on the
+    merits; then call council_vote."""
+    return council.pending_for_claude()
+
+
+@mcp.tool()
+def council_vote(session: int, verdict: str, confidence: float, reasons: str, risks: list[str] | None = None,
+                 what_would_change_my_mind: str = "") -> dict:
+    """Cast Claude's council vote on a session: verdict approve | reject | hold, confidence 0-1, reasons (under 80 words).
+    The founder still decides unless the council has been given authority in Settings."""
+    return council.vote(session, verdict, confidence, reasons, risks=risks, change_mind=what_would_change_my_mind)
+
+
+@mcp.tool()
+def council_sessions(limit: int = 15) -> dict:
+    """Recent council sessions with every member's vote, and each member's record on decisions that have been scored."""
+    return {"sessions": council.sessions(limit), "record": council.record(), "members": council.members(), "settings": council.settings()}
+
+
+@mcp.tool()
+def council_convene(decision: int) -> dict:
+    """Convene (or re-convene) the council on one open decision now."""
+    from .company.playbooks import _recommend
+    d = next((x for x in engine.decisions() if x["id"] == decision), None)
+    if not d:
+        raise ValueError("no such decision")
+    v, why = _recommend(d)
+    return council.convene(d, v, why, force=True)
+
+
+@mcp.tool()
+def harness_view() -> dict:
+    """The agents' live policy knobs (the harness Helix improves): each component's owner, meaning, bounds and value."""
+    return {"version": harness.version(), "components": harness.catalog()}
+
+
+@mcp.tool()
+def evolve_propose(component: str, value: float, hypothesis: str) -> dict:
+    """Queue your own edit for the next self-improvement round: one harness component, a value, and a falsifiable
+    hypothesis about the business mechanism (not about the test). It is screened, sandbox-tested against noise and
+    guards, and only reaches the founder if it also holds up on held-out scenarios."""
+    return evolve.queue_proposal(component, value, hypothesis)
+
+
+@mcp.tool()
+def evolve_status(run: str = "") -> dict:
+    """Self-improvement runs (latest first), or one run's state and full edit history."""
+    if run:
+        st = evolve._load(run)
+        st.pop("frontier_rewards", None)
+        st.pop("baseline_rewards", None)
+        return {"state": st, "history": evolve.history(run)}
+    return {"runs": evolve.runs(), "queue": __import__("json").loads(evolve.QUEUE.read_text()) if evolve.QUEUE.exists() else []}
+
+
+@mcp.tool()
+def evolve_start(rounds: int = 3, days: int = 45) -> dict:
+    """Start a self-improvement run in the background (a few minutes per round). Returns the run id to poll."""
+    return {"run_id": engine.start("evolve_run", {"rounds": rounds, "days": days}, "mcp")}
+
+
+@mcp.tool()
+def llm_status() -> dict:
+    """Which models vix can call itself (local Ollama, OpenAI-compatible servers, APIs), the role assignments, council
+    members and this month's usage. Keys are never shown."""
+    s = llm.public_settings()
+    return {k: s[k] for k in ("default", "roles", "council", "usage", "base_model_note", "anthropic_monthly_token_limit")} | {
+        "providers": [{k: p[k] for k in ("id", "label", "enabled", "key_masked", "base_url")} for p in s["providers"]],
+        "ollama": llm.ollama_status()}
 
 
 

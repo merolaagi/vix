@@ -1,5 +1,6 @@
 """One SQLite file holds the simulated world and the company's records."""
 import json
+import os
 import sqlite3
 import threading
 import time
@@ -127,6 +128,11 @@ def conn():
     if c is None:
         c = sqlite3.connect(DB_PATH, timeout=30)
         c.row_factory = sqlite3.Row
+        seed = os.environ.get("VIX_SIM_SEED")
+        if seed:  # sandbox: SQL random() becomes reproducible too
+            import random as _r
+            gen = _r.Random(f"sql-{seed}")
+            c.create_function("random", 0, lambda: gen.randint(-2**62, 2**62))
         c.execute("pragma journal_mode=wal")
         c.execute("pragma synchronous=normal")
         _local.c = c

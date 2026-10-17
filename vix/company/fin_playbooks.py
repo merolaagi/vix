@@ -273,12 +273,14 @@ def treasury_review(ctx):
     q = fin.pending_quarter()
     if q and not db.one("select id from fin_dividend where quarter=?", (q,)):
         qd = fin.quarter(q)
-        per = round(0.7 * qd["metrics"]["affo_per_share"], 3)
+        from .. import harness
+        payout = float(harness.get("treasury.payout"))
+        per = round(payout * qd["metrics"]["affo_per_share"], 3)
         if per > 0:
             shares = db.setting("shares_outstanding") or fin.SHARES
             did = decision_add(ctx.agent, "declare_dividend", f"Declare a {q} dividend of ${per:.3f} per share",
                                {"quarter": q, "per_share": per, "total_usd": round(per * shares), "affo_per_share": round(qd["metrics"]["affo_per_share"], 3),
-                                "payout": 0.7, "net_debt_to_ebitda": qd["metrics"]["net_debt_to_ebitda"]})
+                                "payout": payout, "net_debt_to_ebitda": qd["metrics"]["net_debt_to_ebitda"]})
             filed.append(did)
     exposure = db.rows("select currency, round(sum(balance_usd)) usd from fin_invoice where status='open' group by currency order by usd desc")
     fxr = db.rows("select ccy, round(rate,4) rate, round(100*(rate/base-1),2) move_pct from fin_fx where ccy!='USD'")
@@ -351,7 +353,7 @@ def cfo_finance_review(ctx):
     var = (fp["summary"] or {}).get("ebitda_variance_pct")
     if var is not None and var < -5:
         esc.append(f"EBITDA {var:+.1f}% against budget")
-    if (fp["summary"] or {}).get("min_cash") is not None and fp["summary"]["min_cash"] < fin.MIN_CASH:
+    if (fp["summary"] or {}).get("min_cash") is not None and fp["summary"]["min_cash"] < fin.min_cash():
         esc.append(f"forecast cash falls to {usd(fp['summary']['min_cash'])} in {fp['summary']['min_cash_period']} before revolver draws")
     ctx.log(f"{len(esc)} escalations")
     md = ("Weekly finance review by Quill.\n\n" +
@@ -446,8 +448,8 @@ def _rec_div(d):
     if lev and lev > 6:
         return "hold", f"leverage {lev:.1f}x is above policy; cut the payout until it is below 6x"
     if lev:
-        return "approve", f"70% of AFFO (${det['affo_per_share']:.3f}/share); leverage {lev:.2f}x within policy"
-    return "approve", "70% of AFFO"
+        return "approve", f"{det.get('payout', 0.7):.0%} of AFFO (${det['affo_per_share']:.3f}/share); leverage {lev:.2f}x within policy"
+    return "approve", f"{det.get('payout', 0.7):.0%} of AFFO"
 
 
 engine.RECOMMENDERS.update({"discount_approval": _rec_discount, "issue_bonds": _rec_issue, "refinance_bond": _rec_refi,

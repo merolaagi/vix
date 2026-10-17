@@ -97,6 +97,8 @@ Founder (you)
 | Dept | Network Architecture | Vantage | `arch_review` |
 | Dept | SDN & AI Networking | Mesh | `sdn_inference_study` |
 | Dept | Professional Services | Bridge | `ps_projects` |
+| Dept | Agent Improvement Lab | Helix | `evolve_run` |
+| CEO | Council sessions | Helm | `council_session` |
 
 Super agents delegate: their runs start child runs in the departments and write a
 summary that links each child report. Irreversible changes (a new hall, a network
@@ -138,6 +140,59 @@ register built from live data; non-standard contract terms and data-residency co
 approved decision against its outcome (did the hire fix the SLA, did the hall earn its case, did the PPA save
 money), compares department costs with budget, and grades every agent A to D for the board pack. Trust &
 governance tab. Control references are generic framework families; it is a simulation, not an attestation.
+
+## Models, the council and the Agent lab (v0.10)
+
+**Your base model is Claude on your claude.ai subscription.** It runs vix through MCP the way it always has, and it
+now holds a seat on the council and can propose improvements to the agents. vix never calls the subscription: using
+subscription credentials from a program is not allowed, and nothing in vix needs them. Claude's council votes wait as
+dossiers in MCP (`council_pending`) until you ask Claude in claude.ai to "review the pending council dossiers"; it
+answers with `council_vote`. Its improvement ideas go in with `evolve_propose`.
+
+**Models & settings (HQ > Intelligence).** vix itself can call:
+
+- local models through Ollama (recommended; download from the tab, e.g. `qwen3.6:27b` on a 32 GB+ Mac, `qwen3:14b` on less),
+- LM Studio or any OpenAI-compatible server,
+- OpenAI, Google Gemini, xAI, Mistral, DeepSeek, Groq, OpenRouter and Together with your own keys,
+- the Claude API (Anthropic), optional and paid. It is **off** until you set a monthly token limit, and stops when
+  the limit is reached.
+
+Keys are saved in `data/llm_settings.json` (owner-only permissions, in the git-ignored data folder), always shown
+masked, and an environment variable (`OPENAI_API_KEY` and so on, see `.env.example`) wins over a saved key. Each role
+(chat, proposer, critic, analyst) gets an ordered list of models; with nothing set, vix uses the first running local
+model, and with no model at all it falls back to the built-in rules. Every call is logged with tokens and cost
+(usage table at the bottom of the tab).
+
+**The council.** Before you decide anything tough (capital, debt, dividends, product exits, big discounts, adopting new
+agent policies, anything over $20M, anything Helm's rules can't settle, or a kind of decision that has gone badly
+before), Helm sends the same dossier to every model on the bench: the proposal, Helm's view, the company's numbers
+and how similar decisions turned out. Each returns a verdict, a confidence, reasons, risks and what would change its
+mind. Votes are weighted by confidence and by each member's record once Arbiter has scored their past calls. By
+default the council advises and you decide (Decisions tab shows every vote; "Convene council" re-runs it). In
+settings you can let a unanimous council, or a clear majority with a quorum, decide on your behalf.
+
+**The Agent lab (Helix, under the CTO): RRSI for vix's agents.** Modelled on Regularized Recursive Self-Improvement
+(google-research/rrsi), which improves an agent's harness rather than its weights. Here the harness is the set of 12
+policy knobs the agents work with (Deal Desk discount scale and margin floor, credit-hold and write-off days, cash
+floor, dividend payout, hurdle IRR, PPA premium, capex utilisation trigger, remote-hands SLA hiring trigger, renewal
+escalator, self-serve order cap), versioned and visible in the Agent lab. Every Saturday at 01:30 (or on demand):
+
+1. **Snapshot** the company and **calibrate** a noise band with a placebo run (a perturbation that should change nothing).
+2. **Analyse** the last round and **propose** two edits, each with a hypothesis about the business: Claude's queued
+   proposals first, then the proposer model, then a heuristic. Edits are limited to 3 steps in round one, annealed to 1.
+3. **Critic**: reject edits outside bounds or budget, already falsified, or whose hypothesis talks about the test
+   (seeds, reward, scenarios) instead of the business; optionally a critic model screens for metric gaming.
+4. **Evaluate** both in parallel sandboxes: seeded copies of the company run 45 days with the founder following Helm.
+   Reward ($M) = 24 x change in monthly run-rate EBITDA, minus bad-debt write-offs and half of new capex, plus a value
+   for new projects by their IRR.
+5. **Select** a winner only if it beats the noise band, pays 0.15 $M per step of departure from the defaults (the
+   regulariser), and breaks no guard (NPS, DSO, leverage, net retention, SLA, network availability, compliance
+   readiness, cash). Within the noise band the smaller edit wins. Edits falsified twice are pruned.
+6. After the last round, test the frontier on held-out scenarios (a price war and a demand slump). If it holds up,
+   Helix files an **adopt_harness** decision; nothing changes live until you approve it, and Arbiter scores the
+   adoption 60 days later.
+
+Runs are kept in `data/evolve` (state and an edit history per run).
 
 ## Customer portal and API
 
@@ -299,6 +354,11 @@ remote-hands SLAs and retention all run on this calendar.
 - **Latency**: great-circle distance x 1.45 route factor at 200 km/ms.
 
 ## Upgrading
+
+Run the new `install.sh` over the old install. v0.9 to v0.10 adds the model router settings (empty: vix keeps working
+with the built-in rules until you add a local model), the council tables, the harness at version 0 (today's values),
+the Agent lab department, and two schedules: the council session daily at 07:05 and the self-improvement run on
+Saturdays at 01:30. Nothing calls a paid API until you configure one.
 
 Run the new `install.sh` over the old install. v0.5 to v0.9 opens the books from the company you already have
 (opening balance sheet, three bond tranches, a revolver), rates every customer's credit, assigns personas and

@@ -288,6 +288,8 @@ def quote_for(opp_id: str):
     if PRESSURE_HOOK:
         extra, comp = PRESSURE_HOOK(t, o["Product__c"], metro)
         base += extra
+    from . import harness
+    base *= float(harness.get("dealdesk.discount_scale"))
     disc = round(min(base, 0.35), 3)
     approval, status, decision, note = "deal desk", "approved", None, ""
     try:
@@ -306,11 +308,12 @@ def quote_for(opp_id: str):
                                      "gross_margin_after": round(gm_after(o["Product__c"], disc), 3),
                                      "competitor": comp, "close_date": o["CloseDate"]})
         else:
+            floor = float(harness.get("dealdesk.gm_floor"))
             cap = 0.20
-            while cap > 0 and gm_after(o["Product__c"], min(disc, cap)) < 0.25:
+            while cap > 0 and gm_after(o["Product__c"], min(disc, cap)) < floor:
                 cap = round(cap - 0.01, 2)
             if disc > cap:
-                note = f"CFO capped {disc:.0%} to {cap:.0%} to keep gross margin at or above 25%"
+                note = f"CFO capped {disc:.0%} to {cap:.0%} to keep gross margin at or above {floor:.0%}"
                 disc = cap
             approval = "cfo"
     net = round(mrr * (1 - disc), 2)
@@ -472,7 +475,10 @@ def resolve_disputes(rnd: random.Random) -> dict:
 
 # ---------------------------------------------------------------- collections
 
-STAGES = [(7, "reminder"), (30, "final_notice"), (45, "credit_hold"), (90, "collections_agency"), (120, "write_off")]
+def stages():
+    from . import harness
+    hold, wo = int(harness.get("collections.hold_days")), int(harness.get("collections.writeoff_days"))
+    return [(7, "reminder"), (30, "final_notice"), (hold, "credit_hold"), (max(hold + 15, wo - 30), "collections_agency"), (wo, "write_off")]
 
 
 def collections(rnd: random.Random) -> dict:
@@ -484,7 +490,7 @@ def collections(rnd: random.Random) -> dict:
     for inv in db.rows("select * from fin_invoice where status='open' and due_date<?", (today,)):
         late = (td - dt.date.fromisoformat(inv["due_date"])).days
         stage = None
-        for d, s in STAGES:
+        for d, s in stages():
             if late >= d:
                 stage = s
         if not stage or stage in (inv["dunning"] or "").split(","):
@@ -602,6 +608,11 @@ def issue_bond(amount, rate, years, date, refinance_id=None) -> dict:
     return {"bond": bid, "amount": amount, "rate": rate, "maturity": mat.isoformat()}
 
 
+def min_cash():
+    from . import harness
+    return float(harness.get("treasury.min_cash_musd")) * 1e6
+
+
 def treasury_daily(rnd: random.Random) -> dict:
     """Keep cash between the floor and the target with the revolver; repay maturing notes."""
     today = products.today()
@@ -611,16 +622,17 @@ def treasury_daily(rnd: random.Random) -> dict:
     out = {"drawn": 0.0, "repaid": 0.0, "matured": []}
     for b in db.rows("select * from fin_debt where kind='bond' and status='outstanding' and maturity<=?", (today,)):
         cash = balances()["cash"]
-        if cash < b["principal"] + MIN_CASH:
-            out["drawn"] += draw_revolver(b["principal"] + MIN_CASH - cash, today, f"revolver draw to repay {b['name']}")
+        if cash < b["principal"] + min_cash():
+            out["drawn"] += draw_revolver(b["principal"] + min_cash() - cash, today, f"revolver draw to repay {b['name']}")
         post(today, [("bonds", b["principal"]), ("cash", -b["principal"])], f"repay {b['name']} at maturity", f"debt:{b['id']}")
         db.execute("update fin_debt set status='repaid' where id=?", (b["id"],))
         out["matured"].append(b["name"])
     cash = balances()["cash"]
-    if cash < MIN_CASH:
-        out["drawn"] += draw_revolver(TARGET_CASH - cash, today)
-    elif cash > TARGET_CASH * 1.6:
-        out["repaid"] += repay_revolver(cash - TARGET_CASH * 1.2, today)
+    target = min_cash() * 4 / 3
+    if cash < min_cash():
+        out["drawn"] += draw_revolver(target - cash, today)
+    elif cash > target * 1.6:
+        out["repaid"] += repay_revolver(cash - target * 1.2, today)
     return out
 
 

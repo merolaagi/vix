@@ -14,6 +14,7 @@ import datetime as dt
 import heapq
 import json
 import math
+import os
 import random
 import threading
 import time
@@ -23,6 +24,15 @@ from . import db
 # ---------------------------------------------------------------- calendar
 
 START_DATE = "2026-10-16"
+
+
+def rng(tag: str) -> random.Random:
+    """Random stream for a simulation step. Normally fresh each run; when VIX_SIM_SEED is set (sandbox evaluations
+    for self-improvement) it is reproducible from the tag, the simulated date and the seed."""
+    seed = os.environ.get("VIX_SIM_SEED")
+    if seed and os.environ.get("VIX_PLACEBO") == tag and today() <= os.environ.get("VIX_PLACEBO_UNTIL", ""):
+        seed += "-placebo"   # a tiny perturbation: measures how far a run drifts on its own
+    return random.Random(f"{tag}-{today()}-{seed}" if seed else f"{tag}-{today()}-{time.time()}")
 
 
 def today() -> str:
@@ -538,8 +548,10 @@ def run_renewals(rnd: random.Random) -> list[dict]:
         new_end = add_months(today_d(), c["term_months"]).isoformat()
         if rnd.random() < p:
             db.execute("update tenants set price_index=price_index*? where id=?", (1 + c["escalator_pct"] / 100, tid))
-            db.execute("update contracts set start_date=?, end_date=? where tenant=?", (today(), new_end, tid))
-            ev, note = "renewed", f"+{c['escalator_pct']}% escalator"
+            from . import harness
+            esc = float(harness.get("accounts.escalator_pct"))
+            db.execute("update contracts set start_date=?, end_date=?, escalator_pct=? where tenant=?", (today(), new_end, esc, tid))
+            ev, note = "renewed", f"+{c['escalator_pct']}% escalator; next term {esc}%"
         elif rnd.random() < 0.5:
             freed = release_tenant(tid, 0.5)
             db.execute("update contracts set start_date=?, end_date=? where tenant=?", (today(), new_end, tid))

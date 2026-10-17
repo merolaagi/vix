@@ -244,7 +244,8 @@ def on_opportunity(oid):
         add_customer(tid, rnd)
         mc = db.one("select * from mkt_customer where tenant=?", (tid,))
     ch, partner = "direct", None
-    if o["Type"] == "Expansion" and mc["portal"] and (o["MRR__c"] or 0) < 15000 and rnd.random() < 0.55:
+    from . import harness
+    if o["Type"] == "Expansion" and mc["portal"] and (o["MRR__c"] or 0) < float(harness.get("portal.self_serve_max_mrr")) and rnd.random() < 0.55:
         ch = "portal"
         db.execute("update crm_opportunity set CloseDate=? where Id=?", ((products.today_d() + dt.timedelta(days=1)).isoformat(), oid))
     elif o["Type"] == "New Business" and rnd.random() < 0.18:

@@ -61,7 +61,7 @@ def _record_incident(day, target, cause, diagnosis, action, start, detected, res
           "diagnoses faults, remediates (reboot, RMA, optic or PSU swap, reroute), measures customer impact and "
           "SLA credits, and pages a human for live gear.")
 def noc_watch(ctx):
-    rnd = random.Random(f"noc-{products.today()}-{time.time()}")
+    rnd = products.rng("noc")
     ctl = NetworkControl("Sentinel")
     day = products.today()
     poll = float(db.setting("net_poll_minutes", 5) or 5)
@@ -251,7 +251,7 @@ def _target_version(dev):
           "and executes today's maintenance window through the driver layer.",
           {"max_new": {"type": "int", "default": 12}})
 def change_manage(ctx):
-    rnd = random.Random(f"chg-{products.today()}-{time.time()}")
+    rnd = products.rng("chg")
     ctl = NetworkControl("Tempo")
     today = products.today_d()
     planned = []

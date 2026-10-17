@@ -45,9 +45,9 @@ def usd(v):
           {"days": {"type": "int", "default": 1}, "orders_per_day": {"type": "int", "default": 5},
            "new_logo_rate": {"type": "float", "default": 0.06}})
 def sales_demand_cycle(ctx):
-    rnd = random.Random(int(time.time()))
+    rnd = products.rng("sales")
     days = ctx.p("days", 1, int)
-    rate = ctx.p("orders_per_day", 5, int)
+    rate = ctx.p("orders_per_day", 5, int) * float(__import__("os").environ.get("VIX_DEMAND_SCALE", "1"))
     new_rate = ctx.p("new_logo_rate", 0.06, float)
     metros = [m[0] for m in world.METROS]
     sites = [s["id"] for s in db.rows("select id from sites")]
@@ -191,7 +191,7 @@ def metal_fulfill_orders(ctx):
           {"load": {"type": "float", "default": 1.0}})
 def cx_ticket_desk(ctx):
     day = products.today()
-    rnd = random.Random(f"cx-{day}-{time.time()}")
+    rnd = products.rng("cx")
     r = products.simulate_tickets(rnd, day, ctx.p("load", 1.0, float))
     since = (products.today_d() - dt.timedelta(days=7)).isoformat()
     week = {w["site"]: w for w in db.rows("select site, count(*) n, sum(met) met, sum(billed_usd) usd from tickets"
@@ -218,7 +218,7 @@ def cx_ticket_desk(ctx):
           "Process contracts that end today: renew with the price escalator, downsize, or churn. "
           "Renewal odds rise with interconnection density and cloud connections and fall with SLA misses.")
 def accounts_renewals(ctx):
-    rnd = random.Random(f"acct-{products.today()}-{time.time()}")
+    rnd = products.rng("acct")
     opened = crm.open_renewals(90)
     events = products.run_renewals(rnd)
     for e in events:
@@ -245,7 +245,7 @@ def accounts_renewals(ctx):
           "faults/repairs, and flag halls outside limits.",
           {"fault_rate": {"type": "float", "default": 0.03}})
 def ops_daily_health(ctx):
-    rnd = random.Random(int(time.time()))
+    rnd = products.rng("ops")
     fault = ctx.p("fault_rate", 0.03, float)
     targets = charter_mod.load()["targets"]
     events = []
@@ -705,7 +705,8 @@ def _recommend(d):
                         else "no waitlisted demand behind it yet; the halls are tight on power but customers are not queuing")
     if d["kind"] == "network_capex":
         days = det.get("days_to_80")
-        if (det.get("util") or 0) >= 0.8 or (days is not None and days <= 60):
+        from .. import harness
+        if (det.get("util") or 0) >= float(harness.get("capacity.capex_util")) or (days is not None and days <= 60):
             return "approve", f"{det.get('reason')}; ${det.get('capex_usd', 0):,.0f}"
         return "hold", f"{det.get('reason')}; not urgent yet, revisit in two weeks"
     if d["kind"] == "net_change":
@@ -733,7 +734,8 @@ def _recommend(d):
         at_risk = db.scalar("select coalesce(sum(o.MRR__c),0) from crm_opportunity o join crm_account a on a.Id=o.AccountId"
                             " where o.Type='Renewal' and o.IsClosed=0 and exists (select 1 from crm_asset x where"
                             " x.AccountId=a.Id and x.Location__c like ? and x.Status='Installed')", (site + "%",)) or 0
-        if s30 and s30["sla_pct"] < 93:
+        from .. import harness
+        if s30 and s30["sla_pct"] < float(harness.get("cx.hire_sla")):
             return "approve", (f"30-day SLA {s30['sla_pct']}% on {s30['tickets']} tickets, not a one-off; "
                                f"${products.TECH_COST_MONTH:,.0f}/mo against ${at_risk:,.0f}/mo of renewals with gear on site")
         return "hold", (f"7-day dip only; 30-day SLA is {s30['sla_pct'] if s30 else 'n/a'}%. Re-check next week before "
@@ -805,9 +807,19 @@ def ceo_board_pack(ctx):
         except Exception as e:  # noqa: BLE001
             extra_lines.append(f"- **{pb_name}** failed: {e}\n")
     recs = []
+    from .. import council
+    convene = bool(council.settings().get("auto_convene", True)) and not __import__("os").environ.get("VIX_SANDBOX")
     for d in decisions("open"):
         verdict, why = _recommend(d)
-        recs.append({"id": d["id"], "from": d["agent"], "decision": d["title"], "Helm recommends": verdict, "why": why})
+        cv = ""
+        if convene:
+            try:
+                t = council.convene(d, verdict, why)
+                if t:
+                    cv = f"{t['verdict']} ({t['votes']} vote{'s' if t['votes'] != 1 else ''}" + (", Claude pending" if t["awaiting"] else "") + ")"
+            except Exception as e:  # noqa: BLE001
+                cv = f"error: {type(e).__name__}"
+        recs.append({"id": d["id"], "from": d["agent"], "decision": d["title"], "Helm recommends": verdict, "council": cv, "why": why})
     ctx.log(f"board pack: {len(recs)} decisions, {len(risks)} risks, numbers consistent={consistent}")
     md = (f"Week ending **{products.today()}** (simulated). Prepared by Helm (CEO) from the Chief Operator, Chief Scientist "
           f"and the other chiefs. " + ("Atlas's figures tie to the warehouse." if consistent else
@@ -826,7 +838,9 @@ def ceo_board_pack(ctx):
           f"- **Vega (data):** quality {v.get('score')}, {v.get('fail', 0)} fail, {v.get('warn', 0)} warn"
           + (f", self-healed {', '.join(v['healed'])}" if v.get("healed") else "") + f". Report: {vega['report']}\n" + "".join(extra_lines) +
           "\n## Risks\n\n" + ("".join(f"- {r}\n" for r in risks) or "- None worth your time this week.\n") +
-          "\n## Decisions for you\n\n" + table(recs, ["id", "from", "decision", "Helm recommends", "why"]) +
+          "\n## Decisions for you\n\n" + table(recs, ["id", "from", "decision", "Helm recommends", "council", "why"]) +
+          ("\nCouncil votes marked 'Claude pending' are waiting for Claude's seat: ask Claude in claude.ai to review them.\n"
+           if any("Claude pending" in r["council"] for r in recs) else "") +
           "\nApprove or reject each one in HQ (Decisions) or ask Claude to call company_decide.\n")
     return {"week_ending": products.today(), "mrr": mrr, "decisions": len(recs),
             "recommend_approve": [r["id"] for r in recs if r["Helm recommends"] == "approve"],
@@ -850,7 +864,7 @@ def exec_operating_cycle(ctx):
 
     def physics():
         from .. import netinfra
-        r = random.Random(f"net-{products.today()}-{time.time()}")
+        r = products.rng("net")
         netinfra.assign_ports()
         netinfra.simulate_day(r)
         netinfra.capacity_snapshot()

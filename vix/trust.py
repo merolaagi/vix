@@ -533,7 +533,7 @@ def legal_on_opportunity(oid):
 
 CHECK_DAYS = {"hire_techs": 45, "cooling_upgrade": 30, "network_capex": 60, "sign_ppa": 120, "discount_approval": 30,
               "declare_dividend": 95, "issue_bonds": 30, "refinance_bond": 30, "hyperscale_bid": 45, "sunset_metal": 200,
-              "net_change": 21, "dev_project": 365, "build_hall": 365, "onsite_power": 60, "network_standard": 90}
+              "net_change": 21, "dev_project": 365, "build_hall": 365, "onsite_power": 60, "network_standard": 90, "adopt_harness": 60}
 
 
 def on_decide(d, approved, effect):
@@ -552,6 +552,11 @@ def on_decide(d, approved, effect):
         base = {"lev": det.get("net_debt_to_ebitda")}
     elif kind in ("issue_bonds", "refinance_bond"):
         base = {"cash": _cash()}
+    elif kind == "adopt_harness":
+        from . import fin
+        rr = fin.run_rate()
+        base = {"ebitda_rr": rr["revenue"]["total"] - rr["power_cost"] - rr["site_opex"] - rr["tech_labour"] - rr["net_support"] - rr["sga"],
+                "nps": None}
     db.execute("insert or replace into gov_outcome(decision,kind,title,agent,approved_on,check_on,baseline,status) values(?,?,?,?,?,?,?,'pending')",
                (d["id"], kind, d["title"], d["agent"], products.today(),
                 (products.today_d() + dt.timedelta(days=CHECK_DAYS.get(kind, 60))).isoformat(), json.dumps({**base, "detail": det}, default=str)))
@@ -646,6 +651,13 @@ def score_outcomes() -> list[dict]:
                 r = roi[-1]["ratio"] or 0
                 score = 1.0 if r >= 0.9 else 0.5 if r >= 0.7 else 0.0
                 why = f"earns {r:.0%} of plan after {roi[-1]['months']} months"
+        elif k == "adopt_harness":
+            from . import fin
+            rr = fin.run_rate()
+            now = rr["revenue"]["total"] - rr["power_cost"] - rr["site_opex"] - rr["tech_labour"] - rr["net_support"] - rr["sga"]
+            ch = now / b["ebitda_rr"] - 1 if b.get("ebitda_rr") else 0
+            score = 1.0 if ch >= 0.01 else 0.5 if ch >= -0.01 else 0.0
+            why = f"run-rate EBITDA {ch:+.1%} since the new policies went live"
         elif k == "onsite_power":
             p = db.one("select stage from dev_project where id=?", (det.get("project"),))
             score, why = (1.0, "project moved past the power stage") if p and p["stage"] != "power" else (0.0, "still waiting for power")

@@ -561,3 +561,4 @@ from . import fin_playbooks  # noqa: E402,F401
 from . import growth_playbooks  # noqa: E402,F401
 from . import market_playbooks  # noqa: E402,F401
 from . import trust_playbooks  # noqa: E402,F401
+from . import evolve_playbooks  # noqa: E402,F401

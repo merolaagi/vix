@@ -139,6 +139,8 @@ details.dt summary{cursor:pointer;color:var(--dim);font-size:12px;margin:10px 0 
 .heat5{display:grid;grid-template-columns:28px repeat(5,1fr);gap:3px;font:11px var(--mono)}.heat5 div{min-height:44px;border-radius:4px;padding:3px;display:flex;flex-wrap:wrap;gap:3px;align-content:flex-start}
 .heat5 .ax{background:none;color:var(--dim);align-items:center;justify-content:center;min-height:auto}
 .heat5 b{background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:0 4px;font-weight:600;color:var(--ink);cursor:default}
+.dec>div:first-child{min-width:0;flex:1}.dec .mission,.dec li{overflow-wrap:anywhere}.grid.wide>*{min-width:0}#sollama{overflow-x:auto}#sollama table{min-width:520px}
+@media(max-width:520px){.dec{flex-direction:column}.dec>div:last-child{align-items:flex-start!important}}
 </style>
 </head>
 <body>
@@ -160,6 +162,8 @@ details.dt summary{cursor:pointer;color:var(--dim);font-size:12px;margin:10px 0 
   <button data-t="world">World</button><button data-t="network">Network</button><button data-t="trust">Trust &amp; governance</button>
   <div class="grp">Data</div>
   <button data-t="insights">Insights</button><button data-t="explore">Explore (BI)</button><button data-t="graph">Graph</button>
+  <div class="grp">Intelligence</div>
+  <button data-t="lab">Agent lab</button><button data-t="settings">Models &amp; settings</button>
 </nav>
 <main>
   <section class="tab on" id="overview">
@@ -334,6 +338,41 @@ details.dt summary{cursor:pointer;color:var(--dim);font-size:12px;margin:10px 0 
       <div><h2>Track record by kind</h2><div class="tw"><table id="gvkind"></table></div><h2>Department costs vs budget</h2><div class="tw"><table id="gvbud"></table></div></div>
     </div>
   </section>
+  <section class="tab" id="lab">
+    <p class="note" style="margin-top:14px;max-width:900px">Helix improves the agents' own policies the way RRSI (Regularized Recursive Self-Improvement) improves agent harnesses: each round two edits, each with a hypothesis, are screened for metric gaming, run in parallel sandboxes on seeded copies of the company, and kept only if they beat the noise band (measured with a placebo), pay for their departure from the defaults and break no guard. A frontier that also holds up in a price war and a demand slump goes to you as a decision. Nothing changes live until you approve it.</p>
+    <h2>Agent policies (harness v<span id="hver"></span>)</h2><div class="tw"><table id="htbl"></table></div>
+    <div class="grid wide" style="margin-top:12px">
+      <div><h2>Propose an edit</h2><div class="card form">
+        <label>Component<select id="pcomp"></select></label><label>New value<input id="pval" size="8"></label>
+        <label style="flex:1;min-width:240px">Hypothesis (about the business, not the test)<input id="phyp" placeholder="e.g. earlier credit holds stop distressed customers running up balances"></label>
+        <button class="b go" id="pgo">Queue for next round</button></div><p class="note" id="pq"></p></div>
+      <div><h2>Run the lab</h2><div class="card form"><label>Rounds<input id="lrounds" value="3" size="3"></label><label>Simulated days per evaluation<input id="ldays" value="45" size="4"></label>
+        <button class="b go" id="lgo">Start a run</button></div><p class="note">Each round runs six sandboxes in parallel, a few minutes on the Mac mini. Claude can also propose edits from claude.ai (MCP: evolve_propose).</p></div>
+    </div>
+    <h2>Runs</h2><div class="tw"><table id="lruns"></table></div>
+    <div id="lrun"></div>
+  </section>
+  <section class="tab" id="settings">
+    <div class="card" style="margin-top:14px"><b>Base model:</b> <span id="sbase"></span></div>
+    <div class="grid wide" style="margin-top:12px">
+      <div><h2>Default model and roles</h2><div class="card">
+        <div class="form"><label style="flex:1">Default model<select id="sdef"></select></label><button class="b" id="stry">Try it</button></div><p class="note" id="stryout"></p>
+        <div id="sroles" style="margin-top:10px"></div></div></div>
+      <div><h2>Council</h2><div class="card"><p class="note">Who deliberates on tough decisions. Claude's seat is you working with Claude in claude.ai (no API cost).</p>
+        <div id="scmembers" class="mlist"></div>
+        <div class="form" style="margin-top:10px"><label>Authority<select id="scmode"><option value="advise">Advise only (you decide)</option><option value="unanimous">Decide when unanimous</option><option value="majority">Decide on a clear majority</option></select></label>
+          <label>Quorum<input id="scq" size="3"></label><label>Convene in board packs<select id="scauto"><option value="1">yes</option><option value="0">no</option></select></label>
+          <button class="b go" id="scsave">Save council</button></div></div></div>
+    </div>
+    <h2>Models on this Mac (Ollama)</h2><div class="card" id="sollama"></div>
+    <h2>Providers and keys</h2><p class="note">Keys are stored in data/llm_settings.json (owner-only, git-ignored) and shown masked; an environment variable wins over a saved key. Paste a key and press Test to list its models.</p>
+    <div class="grid wide" id="sprov"></div>
+    <div class="grid wide" style="margin-top:12px">
+      <div><h2>Claude API (optional, paid)</h2><div class="card"><p class="note">Off until you set a monthly token limit. Your subscription is not used by vix.</p>
+        <div class="form"><label>Monthly token limit (0 = off)<input id="satl" size="12"></label><button class="b go" id="satlsave">Save</button></div></div></div>
+      <div><h2>Usage this month</h2><div class="tw"><table id="susage"></table></div></div>
+    </div>
+  </section>
   <section class="tab" id="decisions"><h2>Decisions filed by the super agents</h2><div id="declist"></div></section>
   <section class="tab" id="reports"><div class="split"><div class="list" id="replist"></div><div class="md" id="repview"><p class="note">Pick a report.</p></div></div></section>
   <section class="tab" id="schedules">
@@ -449,12 +488,69 @@ async function halls(){const hs=await api('/api/world/halls'+($('#hallMetro').va
   $('#halls').innerHTML='<tr><th>Hall</th><th>Cabinets</th><th>Space</th><th>Power (contracted/utility kW)</th><th>Power</th><th>IT kW</th><th>Cooling</th></tr>'+
   hs.map(h=>`<tr><td><b>${h.id}</b> ${h.cooling_type==='liquid'?'<span class="st running">liquid</span>':''}</td><td class="n">${h.cabinets_sold}/${h.cabinets_total}</td><td>${bar(h.cab_util)}</td><td class="n">${Math.round(h.contracted_kw)}/${h.utility_kw}</td><td>${bar(h.power_util)}</td><td class="n">${Math.round(h.it_load_kw)}</td><td class="n" style="color:${h.crah_down?'var(--amber)':'inherit'}">${h.crah_units-h.crah_down}/${h.crah_units} ${h.cooling_type==='liquid'?'CDU':'CRAH'}</td></tr>`).join('')}
 
-async function decisionsTab(){const ds=await api('/api/company/decisions');
-  $('#declist').innerHTML=ds.map(d=>`<div class="card" style="margin-bottom:10px"><div class="dec"><div><div class="agent">#${d.id} · ${esc(d.agent)} · ${d.kind}</div><h3>${esc(d.title)}</h3>
-  <div class="mission">${Object.entries(d.detail).map(([k,v])=>`<b>${esc(k)}</b>: ${esc(typeof v==='number'&&v>1e5?money(v):v)}`).join(' · ')}</div>
-  <div class="note">${ago(d.ts)}${d.note?' · '+esc(d.note):''}</div></div>
-  <div>${d.status==='open'?`<button class="b ok" data-dec="${d.id}" data-ap="1">Approve</button> <button class="b no" data-dec="${d.id}" data-ap="0">Reject</button>`:`<span class="st ${d.status==='approved'?'done':'failed'}">${d.status}</span>`}</div></div></div>`).join('')||'<p class="note">No decisions yet. The Chief Operator files them in the weekly review; the Chief Scientist in the research cycle.</p>';
-  document.querySelectorAll('[data-dec]').forEach(b=>b.onclick=async()=>{try{const r=await api('/api/company/decisions/'+b.dataset.dec,{method:'POST',body:JSON.stringify({approve:b.dataset.ap==='1',note:'founder via HQ'})});toast(`Decision #${r.decision} ${r.status}`);decisionsTab();overview()}catch(err){toast(err.message)}})}
+async function decisionsTab(){const [ds,cl]=await Promise.all([api('/api/company/decisions'),api('/api/council').catch(()=>({sessions:[]}))]);
+  const bySess={};(cl.sessions||[]).forEach(x=>{if(!bySess[x.decision])bySess[x.decision]=x});
+  const dv=v=>v!==null&&typeof v==='object'?JSON.stringify(v).slice(0,160):(typeof v==='number'&&v>1e5?money(v):v);
+  $('#declist').innerHTML=(cl.pending_for_claude?`<div class="card" style="margin-bottom:10px;border-color:var(--violet)"><b>${cl.pending_for_claude} council dossier${cl.pending_for_claude>1?'s':''} waiting for Claude's seat.</b> <span class="note">Ask Claude in claude.ai: “review the pending council dossiers”.</span></div>`:'')+
+  ds.map(d=>{const cs=bySess[d.id];return `<div class="card" style="margin-bottom:10px"><div class="dec"><div><div class="agent">#${d.id} · ${esc(d.agent)} · ${d.kind}</div><h3>${esc(d.title)}</h3>
+  <div class="mission">${Object.entries(d.detail).map(([k,v])=>`<b>${esc(k)}</b>: ${esc(dv(v))}`).join(' · ')}</div>
+  <div class="note">${ago(d.ts)}${d.note?' · '+esc(d.note):''}</div>
+  ${cs?`<div style="margin-top:8px"><span class="note">Council:</span> ${chip(cs.verdict==='approve'?'pass':cs.verdict==='reject'?'fail':'exception')} <b>${esc(cs.verdict||'')}</b> <span class="note">score ${cs.score??''}${cs.decided_by_council?' · decided by the council':''}</span>
+    <ul style="margin:4px 0 0;padding-left:18px">${cs.votes.map(v=>`<li class="note"><b>${esc(v.member)}</b>: ${v.status==='cast'?`${esc(v.verdict)} (${Math.round((v.confidence||0)*100)}%): ${esc(v.reasons||'')}`:v.status==='awaiting'?'waiting for Claude in claude.ai':'failed: '+esc(v.error||'')}</li>`).join('')}</ul></div>`:''}</div>
+  <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">${d.status==='open'?`<div><button class="b ok" data-dec="${d.id}" data-ap="1">Approve</button> <button class="b no" data-dec="${d.id}" data-ap="0">Reject</button></div><button class="b" data-conv="${d.id}">Convene council</button>`:`<span class="st ${d.status==='approved'?'done':'failed'}">${d.status}</span>`}</div></div></div>`}).join('')||'<p class="note">No decisions yet.</p>';
+  document.querySelectorAll('[data-dec]').forEach(b=>b.onclick=async()=>{try{const r=await api('/api/company/decisions/'+b.dataset.dec,{method:'POST',body:JSON.stringify({approve:b.dataset.ap==='1',note:'founder via HQ'})});toast(`Decision #${r.decision} ${r.status}`);decisionsTab();overview()}catch(err){toast(err.message)}});
+  document.querySelectorAll('[data-conv]').forEach(b=>b.onclick=async()=>{b.textContent='Convening…';b.disabled=true;try{const r=await api('/api/council/convene/'+b.dataset.conv,{method:'POST'});toast(r?`Council: ${r.verdict} (${r.votes} votes${r.awaiting?', Claude pending':''})`:'No council members configured');decisionsTab()}catch(err){toast(err.message);b.disabled=false}})}
+
+// ---------------- Agent lab
+async function labTab(){
+  const [h,e]=await Promise.all([api('/api/harness'),api('/api/evolve')]);$('#hver').textContent=h.version;
+  tbl('#htbl',h.components,[['component','Component'],['agent','Agent'],['description','What it controls'],['default','Default'],['live','Live',(v,r)=>v!==r.default?`<b>${v}</b>`:esc(v)],['min','Min'],['max','Max']]);
+  $('#pcomp').innerHTML=h.components.map(c=>`<option value="${c.component}">${c.component} (now ${c.live})</option>`).join('');
+  $('#pq').textContent=e.queue.length?`${e.queue.length} edit(s) queued for the next round.`:'';
+  tbl('#lruns',e.runs,[['run','Run',v=>`<a href="#" data-run="${v}">${v}</a>`],['status','Status',chip],['round','Rounds',(v,r)=>`${v}/${r.rounds}`],['delta','Noise band $M'],['frontier_gain','Frontier gain $M'],['changes','Changes',v=>(v||[]).map(c=>`${esc(c.component)} ${c.from}→${c.to}`).join('<br>')||'none'],['decision','Decision',v=>v?'#'+v:'']]);
+  document.querySelectorAll('[data-run]').forEach(a=>a.onclick=async ev=>{ev.preventDefault();const r=await api('/api/evolve/'+a.dataset.run);const st=r.state,res=st.result||{};
+    $('#lrun').innerHTML=`<h2>Run ${esc(st.run)}</h2><p class="note">${st.rounds} rounds × ${st.days} days × ${st.seeds.length} seeds · noise band ${st.delta} $M${st.placebo_diffs?' (placebo drift '+st.placebo_diffs.join(', ')+')':''} · frontier gain ${st.frontier_gain??'–'} $M · pruned: ${(st.prune||[]).join(', ')||'none'}</p>
+      <div class="tw"><table id="lhist"></table></div>${res.heldout&&res.heldout.length?'<h2>Held-out scenarios</h2><div class="tw"><table id="lheld"></table></div>':''}<p class="note">${esc(res.why||'')}</p>`;
+    tbl('#lhist',r.history,[['round','Round'],['component','Component'],['from','From'],['value','To'],['by','Proposed by'],['hypothesis','Hypothesis'],['gain','Gain $M'],['verdict','Verdict',v=>chip(v==='eligible'?'pass':v==='below noise'||v==='not worth it'?'exception':'fail')+' '+esc(v)],['reason','Why'],['winner','Kept',v=>v?chip('pass'):'']]);
+    if(res.heldout&&res.heldout.length)tbl('#lheld',res.heldout,[['scenario','Scenario'],['live','Live $M'],['frontier','Frontier $M'],['gain','Gain'],['guards','Guards',v=>(v||[]).join(', ')||'ok']])});
+}
+$('#pgo').onclick=async()=>{try{const r=await api('/api/evolve/propose',{method:'POST',body:JSON.stringify({component:$('#pcomp').value,value:parseFloat($('#pval').value),hypothesis:$('#phyp').value})});toast(`Queued (${r.queued} waiting)`);labTab()}catch(e){toast(e.message)}};
+$('#lgo').onclick=async()=>{const r=await api('/api/evolve/run',{method:'POST',body:JSON.stringify({rounds:+$('#lrounds').value,days:+$('#ldays').value})});toast(`Helix started run #${r.run_id}; results appear in Runs and Reports`)};
+
+// ---------------- Models & settings
+let SET=null,OLL=null;
+function allSpecs(){const out=[];SET.providers.forEach(p=>{(p.id==='ollama'?(OLL.models||[]).map(m=>m.name):p.models||[]).forEach(m=>out.push(p.id+':'+m))});return out}
+async function settingsTab(){
+  [SET,OLL]=await Promise.all([api('/api/llm/settings'),api('/api/llm/ollama')]);const specs=allSpecs();
+  $('#sbase').textContent=SET.base_model_note;
+  const opt=(sel)=>'<option value="">(automatic: first running local model)</option>'+specs.map(x=>`<option ${x===sel?'selected':''}>${esc(x)}</option>`).join('')+(sel&&!specs.includes(sel)?`<option selected>${esc(sel)}</option>`:'');
+  $('#sdef').innerHTML=opt(SET.default);$('#sdef').onchange=()=>api('/api/llm/settings',{method:'POST',body:JSON.stringify({default:$('#sdef').value})}).then(()=>toast('Default model saved'));
+  $('#sroles').innerHTML=Object.entries(SET.role_help).filter(([r])=>r!=='council').map(([r,h])=>`<div class="form" style="margin-bottom:6px"><label style="flex:1">${esc(r)} <span class="note">${esc(h)}</span><select data-role="${r}">${opt((SET.roles[r]||[])[0]||'')}</select></label></div>`).join('');
+  document.querySelectorAll('[data-role]').forEach(el=>el.onchange=()=>{const roles={};roles[el.dataset.role]=el.value?[el.value]:[];api('/api/llm/settings',{method:'POST',body:JSON.stringify({roles})}).then(()=>toast(el.dataset.role+' model saved'))});
+  $('#stry').onclick=async()=>{$('#stryout').textContent='Asking…';try{const r=await api('/api/llm/try',{method:'POST',body:JSON.stringify({model:$('#sdef').value})});$('#stryout').textContent=`${r.model} (${r.latency_s}s): ${r.text}`}catch(e){$('#stryout').textContent=e.message}};
+  const mem=new Set(SET.council.members||[]);const cands=[SET.claude_seat,...specs];
+  $('#scmembers').innerHTML=cands.map(x=>`<label><input type="checkbox" value="${esc(x)}" ${mem.has(x)?'checked':''}>${x===SET.claude_seat?'Claude (your subscription, via MCP)':esc(x)}</label>`).join('');
+  $('#scmode').value=SET.council.mode||'advise';$('#scq').value=SET.council.quorum??2;$('#scauto').value=SET.council.auto_convene?'1':'0';
+  $('#scsave').onclick=()=>api('/api/llm/settings',{method:'POST',body:JSON.stringify({council:{members:[...document.querySelectorAll('#scmembers input:checked')].map(i=>i.value),mode:$('#scmode').value,quorum:+$('#scq').value,auto_convene:$('#scauto').value==='1'}})}).then(()=>toast('Council saved'));
+  const pulls=Object.entries(OLL.pulls||{});
+  $('#sollama').innerHTML=(OLL.running?`<p>Ollama ${esc(OLL.version||'')} is running at ${esc(OLL.url)}.</p>`:`<p>Ollama is not running at ${esc(OLL.url)}. ${esc(OLL.hint||'')}</p>`)+
+    (OLL.models.length?'<table><tr><th>Model</th><th>Size</th><th>Parameters</th><th>Quantisation</th><th></th></tr>'+OLL.models.map(m=>`<tr><td>${esc(m.name)}</td><td class="n">${m.size_gb} GB</td><td>${esc(m.parameters||'')}</td><td>${esc(m.quantization||'')}</td><td><button class="b" data-odef="${esc(m.name)}">Use as default</button> <button class="b no" data-odel="${esc(m.name)}">Remove</button></td></tr>`).join('')+'</table>':'')+
+    `<div class="form" style="margin-top:10px"><label>Download a model<input id="opull" list="osug" placeholder="qwen3:14b"></label><datalist id="osug">${SET.suggested_local.map(m=>`<option>${m}</option>`).join('')}</datalist><button class="b go" id="opullgo" ${OLL.running?'':'disabled'}>Download</button></div>`+
+    pulls.map(([n,p])=>`<div class="note">${esc(n)}: ${esc(p.status)} ${p.total?Math.round(100*p.completed/p.total)+'%':''}</div>`).join('');
+  document.querySelectorAll('[data-odef]').forEach(b=>b.onclick=()=>api('/api/llm/settings',{method:'POST',body:JSON.stringify({default:'ollama:'+b.dataset.odef})}).then(()=>{toast('Default model saved');settingsTab()}));
+  document.querySelectorAll('[data-odel]').forEach(b=>b.onclick=async()=>{if(!confirm('Remove '+b.dataset.odel+' from this Mac?'))return;await api('/api/llm/ollama/delete',{method:'POST',body:JSON.stringify({name:b.dataset.odel})});settingsTab()});
+  const pg=$('#opullgo');if(pg)pg.onclick=async()=>{await api('/api/llm/ollama/pull',{method:'POST',body:JSON.stringify({name:$('#opull').value})});toast('Downloading…');setTimeout(settingsTab,1500)};
+  if(pulls.some(([,p])=>!/done|failed/.test(p.status)))setTimeout(()=>{if($('#settings').classList.contains('on'))settingsTab()},2000);
+  $('#sprov').innerHTML=SET.providers.filter(p=>p.id!=='ollama').map(p=>`<div class="card"><div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(p.label)}</b><a href="${p.key_page}" target="_blank" rel="noopener" class="note">Get a key ↗</a></div>
+    <div class="form" style="margin-top:8px"><label style="flex:1">Address<input data-purl="${p.id}" value="${esc(p.base_url)}"></label>
+    ${p.needs_key||p.id==='lmstudio'?`<label style="flex:1">Key ${p.key_masked?`<span class="note">(${esc(p.key_masked)}${p.key_source==='environment'?', from environment':''})</span>`:''}<input type="password" data-pkey="${p.id}" placeholder="${p.key_masked?'replace key':'paste key'}" autocomplete="off"></label>`:''}
+    <button class="b go" data-ptest="${p.id}">Save &amp; test</button></div><p class="note" id="pt-${p.id}">${p.models&&p.models.length?p.models.length+' models available':''}</p></div>`).join('');
+  document.querySelectorAll('[data-ptest]').forEach(b=>b.onclick=async()=>{const id=b.dataset.ptest,pp={base_url:document.querySelector(`[data-purl=${id}]`).value};const k=document.querySelector(`[data-pkey=${id}]`);if(k&&k.value)pp.key=k.value;
+    await api('/api/llm/settings',{method:'POST',body:JSON.stringify({providers:{[id]:pp}})});$('#pt-'+id).textContent='Testing…';const r=await api('/api/llm/test/'+id,{method:'POST'});
+    $('#pt-'+id).textContent=r.ok?`OK in ${r.seconds}s: ${r.models.length} models (${r.models.slice(0,6).join(', ')}${r.models.length>6?'…':''})`:'Failed: '+r.error;if(r.ok)setTimeout(settingsTab,600)});
+  $('#satl').value=SET.anthropic_monthly_token_limit||0;$('#satlsave').onclick=()=>api('/api/llm/settings',{method:'POST',body:JSON.stringify({anthropic_monthly_token_limit:parseInt($('#satl').value)||0})}).then(()=>toast('Saved'));
+  tbl('#susage',SET.usage,[['provider','Provider'],['model','Model'],['calls','Calls'],['in_tokens','Tokens in'],['out_tokens','Tokens out'],['cost_usd','Cost $'],['errors','Errors']]);
+}
 
 async function schedTab(){const ss=await api('/api/company/schedules');
   $('#sched').innerHTML='<tr><th>#</th><th>Playbook</th><th>Every</th><th>Next run</th><th>Last run</th><th></th></tr>'+
@@ -862,7 +958,7 @@ async function askSend(){const q=$('#askin').value.trim();if(!q)return;$('#askin
     $('#askwait').outerHTML=`<div class="msg a">${inl(r.answer)}<div class="tl">${esc(r.engine||'')}${r.tools&&r.tools.length?' · used '+r.tools.map(t=>t.tool).join(', '):''}${r.note?' · '+esc(r.note):''}</div></div>`}
   catch(e){$('#askwait').outerHTML=`<div class="msg a">Error: ${esc(e.message)}</div>`}
   box.scrollTop=box.scrollHeight}
-function load(t){({overview,finance:financeTab,growth:growthTab,market:marketTab,trust:trustTab,world:worldTab,business:businessTab,insights:insightsTab,crm:crmTab,network:networkTab,roles:rolesTab,graph:graphTab,explore:exploreTab,decisions:decisionsTab,reports,schedules:schedTab})[t]().catch(e=>toast(e.message))}
+function load(t){({overview,lab:labTab,settings:settingsTab,finance:financeTab,growth:growthTab,market:marketTab,trust:trustTab,world:worldTab,business:businessTab,insights:insightsTab,crm:crmTab,network:networkTab,roles:rolesTab,graph:graphTab,explore:exploreTab,decisions:decisionsTab,reports,schedules:schedTab})[t]().catch(e=>toast(e.message))}
 overview().catch(e=>toast(e.message));setInterval(()=>{if($('#overview').classList.contains('on'))overview().catch(()=>{})},20000);
 </script>
 </body>

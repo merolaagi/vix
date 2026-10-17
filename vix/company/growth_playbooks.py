@@ -6,7 +6,7 @@ import datetime as dt
 import json
 import random
 
-from .. import db, fin, growth, products
+from .. import db, fin, growth, harness, products
 from . import engine
 from .engine import decision_add, playbook
 from .fin_playbooks import _sub, usd
@@ -294,11 +294,12 @@ def _rec_dev(d):
     det = d["detail"]
     irr = det.get("irr")
     lev = _leverage_after(det.get("budget_usd", 0))
-    if irr is None or irr < growth.HURDLE_IRR:
-        return "hold", f"IRR {irr:.1%} is below the {growth.HURDLE_IRR:.0%} hurdle" if irr is not None else "no positive IRR"
+    hurdle = float(harness.get("sites.hurdle_irr"))
+    if irr is None or irr < hurdle:
+        return "hold", f"IRR {irr:.1%} is below the {hurdle:.0%} hurdle" if irr is not None else "no positive IRR"
     if lev and lev > 6:
         return "hold", f"IRR {irr:.1%} clears the hurdle but leverage would reach {lev:.1f}x; fund it first"
-    return "approve", f"{det['reason']}; IRR {irr:.1%} vs {growth.HURDLE_IRR:.0%} hurdle" + (f", leverage after {lev:.1f}x" if lev else "")
+    return "approve", f"{det['reason']}; IRR {irr:.1%} vs {hurdle:.0%} hurdle" + (f", leverage after {lev:.1f}x" if lev else "")
 
 
 def _rec_build_hall(d):
@@ -312,7 +313,7 @@ def _rec_build_hall(d):
     pipe = db.scalar("select count(*) from dev_project where status='active' and metro=? and liquid=?", (metro, int(liquid)))
     if pipe:
         return "reject", f"{pipe} project(s) already under way in {metro}; Scout's pipeline covers this"
-    if (case["irr"] or 0) >= growth.HURDLE_IRR:
+    if (case["irr"] or 0) >= float(harness.get("sites.hurdle_irr")):
         return "approve", f"{det['reason']}; IRR {case['irr']:.1%}; starts a {growth.lead_days(kind) // 30}-month project"
     return "hold", f"IRR {(case['irr'] or 0):.1%} below the hurdle at today's absorption"
 
@@ -328,7 +329,7 @@ def _rec_bid(d):
 def _rec_ppa(d):
     det = d["detail"]
     prem = det["price_mwh"] / det["grid_price_mwh"] - 1
-    if prem <= 0.05:
+    if prem <= float(harness.get("power.ppa_max_premium")):
         return "approve", (f"{'saves' if prem < 0 else 'costs'} {abs(prem):.0%} vs grid, fixes the price for 12 years, lifts renewable "
                            f"share toward {det['target_pct']}%")
     return "hold", f"{prem:.0%} premium over the grid; ask Volt to re-tender"
