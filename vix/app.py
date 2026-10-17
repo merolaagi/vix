@@ -4,10 +4,13 @@ from __future__ import annotations
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import Body, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from urllib.parse import parse_qs
+
+from fastapi import Body, FastAPI, Header, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 
 from . import __version__, armory, bi, chat, council, crm, db, evolve, fin, graph, growth, harness, llm, market, netinfra, products, roles, trust, world
+from . import hqauth
 from .company import charter as charter_mod
 from .company import engine
 from .config import STATIC_DIR
@@ -29,6 +32,64 @@ async def lifespan(_app):
 
 
 app = FastAPI(title="vix", version=__version__, lifespan=lifespan)
+
+
+@app.middleware("http")
+async def hq_gate(request: Request, call_next):
+    """Internet requests (through the Cloudflare tunnel) need the HQ password; requests on the Mac do not."""
+    path = request.url.path
+    if not hqauth.is_public(dict(request.headers)) or path.startswith(hqauth.OPEN_PATHS):
+        resp = await call_next(request)
+    elif not hqauth.configured():
+        resp = HTMLResponse(hqauth.CLOSED, status_code=503) if not path.startswith(("/api/", "/services/")) else \
+            JSONResponse({"error": "HQ is not open to the internet: set the HQ password on the Mac"}, status_code=503)
+    elif hqauth.valid_cookie(request.cookies.get(hqauth.COOKIE)):
+        resp = await call_next(request)
+    elif request.method == "GET" and not path.startswith(("/api/", "/services/")):
+        resp = RedirectResponse(hqauth.login_redirect(path, request.url.query), status_code=303)
+    else:
+        resp = JSONResponse({"error": "sign in to vix HQ"}, status_code=401)
+    if hqauth.is_public(dict(request.headers)):
+        resp.headers.setdefault("X-Frame-Options", "DENY")
+        resp.headers.setdefault("Referrer-Policy", "same-origin")
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+    return resp
+
+
+@app.get("/login")
+def login_form(next: str = "/"):
+    return HTMLResponse(hqauth.login_page(next), headers={"Cache-Control": "no-store"})
+
+
+@app.post("/login")
+async def login_submit(request: Request):
+    form = {k: v[0] for k, v in parse_qs((await request.body()).decode("utf-8", "replace")).items()}
+    nxt = hqauth.safe_next(form.get("next"))
+    ip = request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "?")
+    if not hqauth.configured():
+        return HTMLResponse(hqauth.CLOSED, status_code=503)
+    if hqauth.too_many(ip):
+        return HTMLResponse(hqauth.login_page(nxt, "Too many attempts. Try again in 15 minutes."), status_code=429)
+    if not hqauth.check_password(form.get("password", "")):
+        hqauth.failed(ip)
+        return HTMLResponse(hqauth.login_page(nxt, "Wrong password."), status_code=401)
+    resp = RedirectResponse(nxt, status_code=303)
+    resp.set_cookie(hqauth.COOKIE, hqauth.make_cookie(), max_age=hqauth.DAYS * 86400, httponly=True,
+                    secure=hqauth.is_public(dict(request.headers)), samesite="lax", path="/")
+    return resp
+
+
+@app.get("/logout")
+def logout():
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie(hqauth.COOKIE, path="/")
+    return resp
+
+
+@app.get("/api/session")
+def session(request: Request):
+    return {"public": hqauth.is_public(dict(request.headers)), "password_set": hqauth.configured()}
 
 
 def _guard(fn, *a, **k):

@@ -392,9 +392,28 @@ cd ~/Sites/vix && ./serve.sh
 - HQ: http://127.0.0.1:47530
 - MCP: http://127.0.0.1:47531/mcp
 
-To reach it from claude.ai, set `VIX_MCP_TOKEN` and `VIX_MCP_PUBLIC_HOST` in `.env`,
-route a hostname to port 47531 in your Cloudflare Tunnel, and add
-`https://<host>/mcp/<token>` as a custom connector.
+### On your own domain (v0.10.1)
+
+```
+cd ~/Sites/vix && ./publish.sh
+```
+
+publishes HQ at `https://vix.fueldeskpro.com` and MCP at `https://vix-mcp.fueldeskpro.com` through the Cloudflare
+tunnel already running on the Mac (the system cloudflared, `/etc/cloudflared/config.yml`). It:
+
+1. asks you to choose an HQ password the first time (stored hashed in `data/hq_auth.json`),
+2. creates an MCP token in `.env` if there isn't one and sets `VIX_MCP_PUBLIC_HOST`, then restarts vix,
+3. adds both hostnames to the tunnel's ingress rules (backup first, validated, restored if invalid) and restarts the tunnel,
+4. prints the two CNAME records to add in the Cloudflare dashboard (it does not use `cloudflared tunnel route dns`),
+   waits for them, and checks both hostnames answer,
+5. prints the claude.ai connector URL, `https://vix-mcp.fueldeskpro.com/mcp/<token>`.
+
+From the internet, HQ and the operator side of the portal ask for the HQ password (sign-ins last 30 days; Sign out is
+in the header). On the Mac itself, `http://127.0.0.1:47530` stays open as before. With no password set, HQ refuses
+every internet request. The customer API (`/portal/api/v1`) keeps its own per-customer keys. Change the password with
+`.venv/bin/python -m vix.hqauth`; that also signs everyone out. `./publish.sh --status` checks both hostnames;
+`./publish.sh --remove` takes them offline. Overrides: `VIX_DOMAIN`, `VIX_HQ_HOST`, `VIX_MCP_HOST`, `CF_CONFIG`.
+For a second lock on HQ, add `vix.fueldeskpro.com` (not the MCP host) as a Cloudflare Access application.
 
 Default schedules (Mac local time): operating cycle daily 02:10, weekly review
 Monday 06:40, research cycle Saturday 03:20. Schedules fire while `serve.sh`'s web

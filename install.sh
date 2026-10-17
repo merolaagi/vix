@@ -16,7 +16,7 @@ if [ -d "$DEST/.git" ]; then
 fi
 (cd "$SRC" && tar --exclude ./.venv --exclude ./data --exclude ./logs --exclude ./.env --exclude ./.git -cf - .) | (cd "$DEST" && tar -xf -)
 cd "$DEST"
-chmod +x serve.sh install.sh
+chmod +x serve.sh install.sh publish.sh
 if [ ! -d .venv ]; then
   PY=$(command -v python3.12 || command -v python3.13 || command -v python3.11 || command -v python3)
   "$PY" -m venv .venv
